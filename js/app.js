@@ -419,13 +419,16 @@
   // 設置順ガイドの「次に置くミノ」（まだ埋まっていない最初のガイド手）
   function guideNext() {
     const t = G.template; if (!t || !t.guide) return null;
-    // 通し練習(実ゲーム)：その巡のランダム生成順(cycleGuide)を置いた数ベースで案内
+    // 通し練習(実ゲーム・7-bag)：今のアクティブミノがこの形で入るスロットを案内（適応型）
     if (chainActive()) {
-      const cg = (G.chain && G.chain.cycleGuide) ? G.chain.cycleGuide : t.guide;
-      const i = G.chain.placed || 0;
-      if (i >= cg.length) return null;
-      const g = cg[i];
-      return { idx: i, step: i + 1, total: cg.length, piece: g.piece, cells: g.cells, kind: g.kind };
+      const a = G.active; if (!a) return null;
+      for (let i = 0; i < t.guide.length; i++) {
+        const g = t.guide[i];
+        if (g.piece !== a.piece) continue;
+        const filled = g.cells.every(function (c) { return G.grid[c[0]] && G.grid[c[0]][c[1]]; });
+        if (!filled) return { idx: i, step: i + 1, total: t.guide.length, piece: g.piece, cells: g.cells, kind: g.kind, adaptive: true };
+      }
+      return null; // 今のミノはこの巡では使わない → ホールド推奨
     }
     for (let i = 0; i < t.guide.length; i++) {
       const g = t.guide[i];
@@ -439,8 +442,15 @@
     const lv = "暗記Lv" + G.hintLevel + "「" + HINT_NAMES[G.hintLevel] + "」";
     const star = m.mastered ? " ★マスター済" : "";
     const base = t.prefill ? "灰=前巡の土台。色付きミノを置いてこの形に。" : "目標形を組み上げよう。";
-    const gn = t.guide ? guideNext() : null;
-    const guideStr = gn ? " 次:" + gn.piece + "ミノ(" + gn.step + "/" + gn.total + (gn.kind === "spin" ? "・ねじ込み" : "") + ")" : (t.guide ? "" : " ※形ビルド(手順ガイド無)");
+    let guideStr;
+    if (chainActive()) {
+      // 通し練習：今のミノの置き場を案内（不要ならホールド）
+      const gn = guideNext();
+      guideStr = gn ? (" 今のミノ:" + gn.piece + "→黄の位置へ" + (gn.kind === "spin" ? "(ねじ込み)" : "")) : "（今のミノはこの巡で不要→ホールド推奨）";
+    } else {
+      const gn = t.guide ? guideNext() : null;
+      guideStr = gn ? " 次:" + gn.piece + "ミノ(" + gn.step + "/" + gn.total + (gn.kind === "spin" ? "・ねじ込み" : "") + ")" : (t.guide ? "" : " ※形ビルド(手順ガイド無)");
+    }
     return "【" + t.name + "】" + base + "  " + lv + star + guideStr;
   }
   function setHintLevel(lv) {
@@ -692,7 +702,7 @@
     G.drill = false;
     startContinuousCycle();
   }
-  // 盤面は前巡から持ち越し（リセットしない）。その巡で新しく置くミノをガイド順で供給。
+  // 盤面・バッグ・ホールドは前巡から持ち越し（リセットしない）。ミノはフリー同様の7-bagから供給。
   function startContinuousCycle() {
     const ch = G.chain; if (!ch) return;
     const step = CHAIN_STEPS[ch.stage - 1];
@@ -704,15 +714,12 @@
     const t = setupByName(step.name);
     if (!t) { ch.on = false; flashHint("形が見つかりません: " + step.name, true); return; }
     G.template = t;
-    // 巡ごとの状態だけ初期化（盤面 G.grid は持ち越し）
-    G.chain.placed = 0; // この巡で置いたミノ数
-    G.stepIndex = 0; G.active = null; G.canHold = true; G.hold = null; G.mistake = false;
+    // 巡ごとの状態だけ初期化（盤面 G.grid・バッグ・ホールドは持ち越し）
+    G.stepIndex = 0; G.active = null; G.canHold = true; G.mistake = false;
     G.lastRotation = false; G.attemptMistake = false;
     G.hintLevel = clampHint(masteryOf(t.id).lvl);
     G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
-    // 毎回ランダムな「必ず組める設置順」を生成して供給（同じミノ順の繰り返しを解消）
-    G.chain.cycleGuide = randomChainOrder(t);
-    G.bag = G.chain.cycleGuide.map(function (g) { return g.piece; }); G.queue = [];
+    ensureQueue(6); // フリーと同じ7-bag生成（毎回違うミノ順）
     spawnFromQueue();
     modeLabel.textContent = "通し: " + t.name;
     updateMasteryUI();
@@ -1112,20 +1119,20 @@
       E.lock(G.grid, a.piece, a.rot, a.px, a.py);
       G.stepIndex++; G.pieces++;
       if (spin !== "none") { G.tspins++; }
-      // 通し練習：実ゲーム同様にフル行を即消去（リアルタイム反映）。巡のミノを置き切ったら次巡へ。
+      // 通し練習：フリーと同じ（7-bag生成＋標準ライン消去）。巡の形が完成したら次の巡へ。
       if (chainActive()) {
-        const cl = E.clearLines(G.grid); G.grid = cl.grid;
+        const wasComplete = fieldMatches();           // 消去前に「この巡の形が完成したか」を判定
+        const cl = E.clearLines(G.grid); G.grid = cl.grid; // フリーと同じライン消去
         let msg = clearLabel(spin, cl.cleared);
         if (cl.cleared > 0) { G.lines += cl.cleared; if (boardEmpty()) { G.pcs++; msg = (msg ? msg + " " : "") + "パーフェクトクリア！🎉"; } }
         clearSfx(spin, cl.cleared, boardEmpty());
         G.active = null;
-        G.chain.placed = (G.chain.placed || 0) + 1;
-        const need = (G.template && G.template.guide) ? G.template.guide.length : 7;
-        if (G.chain.placed >= need) { // この巡のミノを置き切った → 次巡へ（盤面は持ち越し）
-          if (msg) flashHint(msg + " ▶ 次の巡へ", false);
+        if (wasComplete) { // 完成 → 次の巡へ（盤面・バッグ・ホールド持ち越し）
+          flashHint((msg ? msg + " " : "") + "▶ 次の巡へ", false);
           G.chain.stage = (G.chain.stage || 1) + 1; startContinuousCycle(); return;
         }
-        flashHint("【通し " + G.chain.stage + "/3】" + (msg ? msg + "　" : "") + setupHintText(G.template), false);
+        if (msg) flashHint("【通し " + G.chain.stage + "/3】" + msg, false);
+        else flashHint("【通し " + G.chain.stage + "/3】" + setupHintText(G.template), false);
         spawnFromQueue(); render(); return;
       }
       G.lastClearLabel = clearLabel(spin, 0);
@@ -1326,12 +1333,10 @@
     resetCommon();
     applyTemplatePrefill();
     if (chainActive()) {
-      // 通し練習中のリセット：この巡を新しいランダム順でやり直し（盤面は土台から）
-      G.chain.placed = 0;
-      G.chain.cycleGuide = randomChainOrder(G.template);
-      G.bag = G.chain.cycleGuide.map(function (g) { return g.piece; }); G.queue = [];
+      // 通し練習中のリセット：この巡を最初からやり直し（土台＋フリー同様の7-bag）
+      G.bag = []; G.queue = []; ensureQueue(6);
     } else {
-      feedGuideBag(); // セットアップ形は同じガイド順のミノを再供給（必ず組み直せる）
+      feedGuideBag(); // 個別の収録セットアップは同じガイド順のミノを再供給（必ず組み直せる）
     }
     if (G.template.setup) {
       G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
