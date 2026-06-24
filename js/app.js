@@ -618,52 +618,45 @@
     if (P.compromise && P.compromise.length) return { route: "compromise", pat: P.compromise[0], n: 0, hard: true };
     return null;
   }
+  // 通し練習＝「連続した1本の線」を盤面持ち越しでプレイ。各巡の完成でライン消去を反映：
+  // ①1巡目=土台(消去なし) ②2巡目=TSTで3ライン消去 ③3巡目=TSD+全消去=パーフェクトクリア。
+  // 基本形①結果==基本形②土台、基本形②消去後==パフェ基準形土台 を検証済み（連続して繋がる）。
+  const CHAIN_STEPS = [
+    { name: "基本形① 1巡目", head: "①1巡目：土台を組む（ライン消去なし）" },
+    { name: "基本形② 2巡目TST", head: "②2巡目：TSTで3ライン消去！" },
+    { name: "3巡目 パフェ基準形", head: "③3巡目：TSD＋全消去でパーフェクトクリア！" },
+  ];
   function honeycupChainStart() {
-    G.chain = { on: true, stage: 1, route: null };
-    startChainStage();
+    const t1 = setupByName(CHAIN_STEPS[0].name);
+    if (!t1) { flashHint("通し練習の形が見つかりません。", true); return; }
+    G.chain = { on: true, stage: 1 };
+    G.mode = "template"; G.template = t1; resetCommon(); // 開始時のみ盤面リセット（1巡目は空から）
+    G.drill = false;
+    startContinuousCycle();
   }
-  function startChainStage() {
+  // 盤面は前巡から持ち越し（リセットしない）。その巡で新しく置くミノをガイド順で供給。
+  function startContinuousCycle() {
     const ch = G.chain; if (!ch) return;
-    const bag = E.newBag(); // この巡のバッグ（判定とプレイのミノを一致させる）
-    let t, head;
-    if (ch.stage === 1) {
-      const posT = bag.indexOf("T"), posI = bag.indexOf("I");
-      const left = posT < posI; // T が先 → 左(ホールド)型
-      t = setupByName(left ? "1巡目 左" : "1巡目 右");
-      head = "①1巡目【" + (left ? "左(ホールド)型" : "右(反転)型") + "】" + (left ? "T" : "I") + "が先。";
-    } else if (ch.stage === 2) {
-      // 理想P1-P5から1つ選び（複数候補からランダム）、そのパターンを必ず組める手順で出題。
-      const pick = pickChainPattern(bag);
-      if (pick) {
-        ch.route = (pick.route === "ideal") ? "ideal" : "compromise";
-        dynTemplate = patternToTemplate(pick.pat, pick.route);
-        const more = (pick.n > 1) ? "（理想形" + pick.n + "種から選択）" : "";
-        const head2 = (pick.route === "ideal")
-          ? ("②2巡目【理想形 " + pick.pat.key + "】を練習" + more)
-          : "②2巡目【妥協形 " + pick.pat.key + "】を練習（理想形が組みにくい型）。";
-        pendingChainBag = bag.slice(); ch.bag = bag.slice();
-        startTemplate("__hc_dyn__"); // dynTemplate を起動（ガイド順のミノを供給）
-        flashHint("【通し練習 2/3】" + head2 + "　" + setupHintText(G.template), false);
-        return;
-      }
-      // パターン未読込時のフォールバック（静的）
-      let ideal = true; try { ideal = canBuildIdeal(bag); } catch (e) { ideal = true; }
-      ch.route = ideal ? "ideal" : "compromise";
-      t = ideal ? setupByName("基本形② 2巡目TST") : setupByName("妥協形 2巡目A");
-      head = ideal ? "②2巡目【理想形=TST】このNEXTで理想形が組めます！" : "②2巡目【妥協形】このNEXTでは理想形が組めない→妥協へ自動切替。";
-    } else if (ch.stage === 3) {
-      t = (ch.route === "ideal") ? setupByName("パフェ基準形") : setupByName("妥協形 3巡目TSTドネイトA");
-      head = (ch.route === "ideal") ? "③3巡目【TSD＋8段パーフェクトクリア】" : "③3巡目【TSTドネイト】";
-    } else {
-      G.chain.on = false;
-      flashHint("通し練習1セット完了！🎉 もう一度『通し練習』で新しいNEXTに挑戦。", false);
-      return;
+    const step = CHAIN_STEPS[ch.stage - 1];
+    if (!step) { // 全巡完了
+      ch.on = false;
+      flashHint("通し練習 完了！" + (G.pcs > 0 ? " ★パーフェクトクリア達成🎉" : "（PCならず）") + "　もう一度『通し練習』で。", false);
+      render(); return;
     }
-    if (!t) { G.chain.on = false; flashHint("通し練習用の形が見つかりませんでした。", true); return; }
-    pendingChainBag = bag.slice();
-    ch.bag = bag.slice(); // この巡のバッグを記憶（リセット時に再供給）
-    startTemplate(t.id); // startTemplate は pendingChainBag があれば G.chain を保持
-    flashHint("【通し練習 " + ch.stage + "/3】" + head + "　" + setupHintText(t), false);
+    const t = setupByName(step.name);
+    if (!t) { ch.on = false; flashHint("形が見つかりません: " + step.name, true); return; }
+    G.template = t;
+    // 巡ごとの状態だけ初期化（盤面 G.grid は持ち越し）
+    G.stepIndex = 0; G.active = null; G.canHold = true; G.hold = null; G.mistake = false;
+    G.lastRotation = false; G.attemptMistake = false;
+    G.hintLevel = clampHint(masteryOf(t.id).lvl);
+    G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
+    feedGuideBag();        // この巡で置く新しいミノ（ガイド順）を供給
+    spawnFromQueue();
+    modeLabel.textContent = "通し: " + t.name;
+    updateMasteryUI();
+    flashHint("【通し練習 " + ch.stage + "/3】" + step.head + "　" + setupHintText(t), false);
+    render();
   }
   function chainActive() { return G.chain && G.chain.on; }
 
@@ -1163,7 +1156,7 @@
         const wasDrill = G.drill;
         const justMastered = recordSetupClear(G.template);
         // 通し練習中：次の巡（別の形）へ自動で進む
-        if (chainActive()) { flashHint(lead, false); G.chain.stage = (G.chain.stage || 1) + 1; startChainStage(); return; }
+        if (chainActive()) { flashHint(lead, false); G.chain.stage = (G.chain.stage || 1) + 1; startContinuousCycle(); return; }
         if (wasDrill && justMastered) { flashHint(lead + " ★この形をマスター！次の弱点へ →", false); startDrill(); return; }
         if (justMastered) lead += " ★マスター達成！";
       } catch (e) { /* 習熟記録の失敗でゲーム進行は止めない */ }
