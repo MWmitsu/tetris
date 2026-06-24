@@ -815,6 +815,8 @@
     if (held.soft && now - (held.soft.last || 0) >= Math.max(15, settings.arr)) {
       tryMove(0, 1); held.soft.last = now;
     }
+    // ゲームパッド(Joy-Con等)
+    pollGamepad(now);
     // gravity
     if (settings.gravity && G.active && !G.over && G.mode !== "template") {
       if (now - G.lastGravity >= settings.gravityMs) {
@@ -829,6 +831,98 @@
     if (!G.active) return;
     lockPiece();
   }
+
+  // ===== ゲームパッド (Switch Joy-Con 左右セット = 標準マッピング) =====
+  // ChromeはJoy-Con L+Rを1台の "standard" ゲームパッドに統合する。
+  // 標準マッピング: 0=B 1=A 2=Y 3=X / 4=L 5=R 6=ZL 7=ZR / 8=- 9=+ /
+  //   12=↑ 13=↓ 14=← 15=→ / axes[0,1]=左スティック, axes[2,3]=右スティック。
+  const PAD_MAP = {
+    left:   { btn: [14], axisNeg: [0] },         // ← / 左スティック左
+    right:  { btn: [15], axisPos: [0] },         // → / 左スティック右
+    soft:   { btn: [13], axisPos: [1] },         // ↓ / 左スティック下
+    hard:   { btn: [12], axisNeg: [1] },         // ↑ / 左スティック上（ハードドロップ）
+    cw:     { btn: [1] },                          // A = 右回転
+    ccw:    { btn: [0] },                          // B = 左回転
+    rot180: { btn: [3] },                          // X = 180°
+    hold:   { btn: [2, 4, 5] },                    // Y / L / R = ホールド
+    undo:   { btn: [8, 6] },                        // - / ZL = 一手戻す
+    reset:  { btn: [9, 7] },                        // + / ZR = リセット
+  };
+  const PAD_AXIS_TH = 0.55;
+  const pad = {
+    enabled: true, connected: false, id: "",
+    moveDir: 0, moveStart: 0, moveLast: 0, moveFired: false, softLast: 0,
+    prev: {}, // エッジ検出用（前フレームの押下状態）
+  };
+  function padOn(gp, spec) {
+    if (!spec) return false;
+    if (spec.btn) for (let i = 0; i < spec.btn.length; i++) {
+      const b = gp.buttons[spec.btn[i]]; if (b && (b.pressed || b.value > 0.5)) return true;
+    }
+    if (spec.axisPos) for (let i = 0; i < spec.axisPos.length; i++) {
+      if ((gp.axes[spec.axisPos[i]] || 0) > PAD_AXIS_TH) return true;
+    }
+    if (spec.axisNeg) for (let i = 0; i < spec.axisNeg.length; i++) {
+      if ((gp.axes[spec.axisNeg[i]] || 0) < -PAD_AXIS_TH) return true;
+    }
+    return false;
+  }
+  function padEdge(gp, key, spec, fn) {
+    const active = padOn(gp, spec);
+    if (active && !pad.prev[key]) fn();
+    pad.prev[key] = active;
+  }
+  function pollGamepad(now) {
+    if (!pad.enabled || !navigator.getGamepads) return;
+    const pads = navigator.getGamepads();
+    let gp = null;
+    for (let i = 0; i < pads.length; i++) { if (pads[i]) { gp = pads[i]; break; } }
+    const was = pad.connected;
+    pad.connected = !!gp;
+    if (gp) pad.id = gp.id;
+    if (was !== pad.connected) updateGamepadStatus();
+    if (!gp) { pad.moveDir = 0; return; }
+
+    // 横移動（キーボードと同じ DAS/ARR）
+    const lf = padOn(gp, PAD_MAP.left), rt = padOn(gp, PAD_MAP.right);
+    let dir = 0;
+    if (lf && !rt) dir = -1; else if (rt && !lf) dir = 1;
+    if (dir !== pad.moveDir) {
+      pad.moveDir = dir;
+      if (dir !== 0) { tryMove(dir, 0); pad.moveStart = now; pad.moveLast = now; pad.moveFired = false; }
+    } else if (dir !== 0) {
+      const el = now - pad.moveStart;
+      if (!pad.moveFired && el >= settings.das) { pad.moveFired = true; tryMove(dir, 0); pad.moveLast = now; }
+      else if (pad.moveFired && now - pad.moveLast >= settings.arr) { tryMove(dir, 0); pad.moveLast = now; }
+    }
+    // ソフトドロップ（押しっぱなしで連続）
+    if (padOn(gp, PAD_MAP.soft)) {
+      if (now - (pad.softLast || 0) >= Math.max(15, settings.arr)) { tryMove(0, 1); pad.softLast = now; }
+    }
+    // 単発アクション（押した瞬間に1回）
+    padEdge(gp, "hard", PAD_MAP.hard, hardDrop);
+    padEdge(gp, "cw", PAD_MAP.cw, function () { tryRotate(1); });
+    padEdge(gp, "ccw", PAD_MAP.ccw, function () { tryRotate(-1); });
+    padEdge(gp, "rot180", PAD_MAP.rot180, tryRotate180);
+    padEdge(gp, "hold", PAD_MAP.hold, holdPiece);
+    padEdge(gp, "undo", PAD_MAP.undo, undo);
+    padEdge(gp, "reset", PAD_MAP.reset, doReset);
+  }
+  function updateGamepadStatus() {
+    const el = $("pad-status"); if (!el) return;
+    if (!pad.enabled) { el.textContent = "ゲームパッド: OFF"; el.className = "note pad-off"; return; }
+    if (pad.connected) {
+      const name = /joy-?con/i.test(pad.id) ? "Joy-Con（左右セット）" : (pad.id || "ゲームパッド").slice(0, 28);
+      el.textContent = "✓ 接続中: " + name;
+      el.className = "note pad-ok";
+    } else {
+      el.textContent = "未接続（ページを選択し、Joy-Conのボタンを1回押すと有効化）";
+      el.className = "note";
+    }
+  }
+
+  window.addEventListener("gamepadconnected", function () { updateGamepadStatus(); });
+  window.addEventListener("gamepaddisconnected", function () { pad.connected = false; updateGamepadStatus(); });
 
   window.addEventListener("keydown", function (e) {
     if (e.repeat) {
@@ -879,6 +973,14 @@
     bindToggle("set-hint", "showHint");
     bindToggle("set-gravity", "gravity");
     bindToggle("set-repeat", "autoRepeat");
+
+    // ゲームパッド(Joy-Con)
+    const padToggle = $("set-gamepad");
+    if (padToggle) {
+      padToggle.checked = pad.enabled;
+      padToggle.addEventListener("change", function () { pad.enabled = padToggle.checked; updateGamepadStatus(); });
+    }
+    updateGamepadStatus();
 
     // 検証パネル
     $("btn-verify").addEventListener("click", function () {

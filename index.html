@@ -102,6 +102,18 @@
       </div>
 
       <div class="panel">
+        <div class="panel-title">ゲームパッド (Switch Joy-Con)</div>
+        <label class="toggle"><input type="checkbox" id="set-gamepad" checked> ゲームパッドを使う</label>
+        <p id="pad-status" class="note">未接続（ページを選択し、Joy-Conのボタンを1回押すと有効化）</p>
+        <p class="note">
+          Joy-Con 左右セット（標準持ち）の割り当て：<br />
+          移動 = 左スティック / 十字キー ←→　／　ソフトドロップ = ↓　／　ハードドロップ = ↑<br />
+          右回転 = A　／　左回転 = B　／　180° = X　／　ホールド = Y・L・R<br />
+          一手戻す = −・ZL　／　リセット = ＋・ZR
+        </p>
+      </div>
+
+      <div class="panel">
         <div class="panel-title">手順型ドリルの検証</div>
         <button id="btn-verify" class="ctrl-btn">手順型ドリルを検証</button>
         <div id="verify-out" class="verify-out"></div>
@@ -113,7 +125,8 @@
     <b>キー操作</b>: ← → 移動 ／ ↑ または X 右回転 ／ Z または Ctrl 左回転 ／ A 180°回転 ／
     ↓ ソフトドロップ ／ Space ハードドロップ ／ Shift または C ホールド ／ U または ⌫ 一手戻す ／ R リセット<br />
     <b>T-Spin</b> はスロットに回転で滑り込ませると自動判定（T-Spin / Mini / シングル〜トリプル）。
-    <b>完成形テンプレ</b>はうすい色の目標形を組み上げれば成功（スピン・ホールドOK）。
+    <b>完成形テンプレ</b>はうすい色の目標形を組み上げれば成功（スピン・ホールドOK）。<br />
+    <b>Joy-Con</b>（左右セット）対応：移動=左スティック/十字 ／ ↑ハードドロップ ／ ↓ソフト ／ A右回転 B左回転 X180° Y/L/Rホールド ／ −Undo ＋リセット。
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
