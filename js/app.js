@@ -263,23 +263,41 @@
   }
   // 接地ドロップ優先・スピン(ねじ込み)手はlastの設置順を算出。完成形を占有再現できなければnull。
   function buildGuide(pieces, prefill, targetBoard) {
-    const occ = []; for (let r = 0; r < ROWS; r++) occ.push(new Array(COLS).fill(false));
-    if (prefill) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (prefill[r][c]) occ[r][c] = true;
-    const rem = pieces.slice(), ord = []; let guard = 0;
-    while (rem.length && guard++ < 200) {
-      let idx = -1, kind = "drop";
-      for (let i = 0; i < rem.length; i++) if (dropPlaceable(occ, rem[i].cells)) { idx = i; break; }
-      if (idx < 0) { kind = "spin"; for (let i = 0; i < rem.length; i++) if (restsPlaceable(occ, rem[i].cells)) { idx = i; break; } }
-      if (idx < 0) return null;
-      const p = rem.splice(idx, 1)[0];
-      ord.push({ piece: p.piece, cells: p.cells, kind: kind });
-      p.cells.forEach(function (c) { occ[c[0]][c[1]] = true; });
+    const base = []; for (let r = 0; r < ROWS; r++) base.push(new Array(COLS).fill(false));
+    if (prefill) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (prefill[r][c]) base[r][c] = true;
+    const N = pieces.length;
+    // スピン手(ねじ込み)を最小化する順序を探索（土台はドロップ・スピンは必要最小限＝実技術に近い自然な手順）。
+    // ドロップ可があればドロップのみ試し、無ければスピンを使う。spins最小の完成順を採用。
+    let best = null, nodes = 0;
+    function dfs(occ, used, ord, spins) {
+      if (best && spins >= best.spins) return;       // これ以上は best を超えられない（枝刈り）
+      if (nodes++ > 200000) return;
+      if (ord.length === N) { best = { ord: ord.slice(), spins: spins }; return; }
+      const drops = [], spinsArr = [];
+      for (let i = 0; i < N; i++) {
+        if (used[i]) continue;
+        if (dropPlaceable(occ, pieces[i].cells)) drops.push(i);
+        else if (restsPlaceable(occ, pieces[i].cells)) spinsArr.push(i);
+      }
+      const list = drops.length ? drops.map(function (i) { return [i, "drop"]; })
+                                : spinsArr.map(function (i) { return [i, "spin"]; });
+      for (let k = 0; k < list.length; k++) {
+        const i = list[k][0], kind = list[k][1], p = pieces[i];
+        p.cells.forEach(function (c) { occ[c[0]][c[1]] = true; }); used[i] = true;
+        ord.push({ piece: p.piece, cells: p.cells, kind: kind });
+        dfs(occ, used, ord, spins + (kind === "spin" ? 1 : 0));
+        ord.pop(); used[i] = false; p.cells.forEach(function (c) { occ[c[0]][c[1]] = false; });
+      }
     }
-    if (rem.length) return null;
+    dfs(base.map(function (r) { return r.slice(); }), new Array(N).fill(false), [], 0);
+    if (!best) return null;
+    // 再構成一致（占有）を確認
+    const occ = base.map(function (r) { return r.slice(); });
+    best.ord.forEach(function (s) { s.cells.forEach(function (c) { occ[c[0]][c[1]] = true; }); });
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
       if ((targetBoard[r][c] ? 1 : 0) !== (occ[r][c] ? 1 : 0)) return null;
     }
-    return ord;
+    return best.ord;
   }
   // 色分解できない形向け：色付き占有を任意ミノで到達可能タイリングし設置順を得る。
   // distinctOnly=true で各ミノ種を1個までに制限（実バッグ相当の手順を優先）。
