@@ -400,6 +400,13 @@
   // 設置順ガイドの「次に置くミノ」（まだ埋まっていない最初のガイド手）
   function guideNext() {
     const t = G.template; if (!t || !t.guide) return null;
+    // 通し練習(実ゲーム)は置いた数ベースで現在ステップを決める（盤面は消去で変動するため）
+    if (chainActive()) {
+      const i = G.chain.placed || 0;
+      if (i >= t.guide.length) return null;
+      const g = t.guide[i];
+      return { idx: i, step: i + 1, total: t.guide.length, piece: g.piece, cells: g.cells, kind: g.kind };
+    }
     for (let i = 0; i < t.guide.length; i++) {
       const g = t.guide[i];
       const done = g.cells.every(function (c) { return G.grid[c[0]][c[1]]; });
@@ -629,7 +636,7 @@
   function honeycupChainStart() {
     const t1 = setupByName(CHAIN_STEPS[0].name);
     if (!t1) { flashHint("通し練習の形が見つかりません。", true); return; }
-    G.chain = { on: true, stage: 1 };
+    G.chain = { on: true, stage: 1, placed: 0 };
     G.mode = "template"; G.template = t1; resetCommon(); // 開始時のみ盤面リセット（1巡目は空から）
     G.drill = false;
     startContinuousCycle();
@@ -647,6 +654,7 @@
     if (!t) { ch.on = false; flashHint("形が見つかりません: " + step.name, true); return; }
     G.template = t;
     // 巡ごとの状態だけ初期化（盤面 G.grid は持ち越し）
+    G.chain.placed = 0; // この巡で置いたミノ数
     G.stepIndex = 0; G.active = null; G.canHold = true; G.hold = null; G.mistake = false;
     G.lastRotation = false; G.attemptMistake = false;
     G.hintLevel = clampHint(masteryOf(t.id).lvl);
@@ -1051,6 +1059,22 @@
       E.lock(G.grid, a.piece, a.rot, a.px, a.py);
       G.stepIndex++; G.pieces++;
       if (spin !== "none") { G.tspins++; }
+      // 通し練習：実ゲーム同様にフル行を即消去（リアルタイム反映）。巡のミノを置き切ったら次巡へ。
+      if (chainActive()) {
+        const cl = E.clearLines(G.grid); G.grid = cl.grid;
+        let msg = clearLabel(spin, cl.cleared);
+        if (cl.cleared > 0) { G.lines += cl.cleared; if (boardEmpty()) { G.pcs++; msg = (msg ? msg + " " : "") + "パーフェクトクリア！🎉"; } }
+        clearSfx(spin, cl.cleared, boardEmpty());
+        G.active = null;
+        G.chain.placed = (G.chain.placed || 0) + 1;
+        const need = (G.template && G.template.guide) ? G.template.guide.length : 7;
+        if (G.chain.placed >= need) { // この巡のミノを置き切った → 次巡へ（盤面は持ち越し）
+          if (msg) flashHint(msg + " ▶ 次の巡へ", false);
+          G.chain.stage = (G.chain.stage || 1) + 1; startContinuousCycle(); return;
+        }
+        flashHint("【通し " + G.chain.stage + "/3】" + (msg ? msg + "　" : "") + setupHintText(G.template), false);
+        spawnFromQueue(); render(); return;
+      }
       G.lastClearLabel = clearLabel(spin, 0);
       const lead = G.lastClearLabel ? G.lastClearLabel + "！" : "";
       G.active = null;
