@@ -17,16 +17,17 @@ html, body {
   background: radial-gradient(1200px 800px at 50% -10%, #1b2a6b 0%, #0c1440 45%, #070b22 100%) fixed;
   font-family: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
   -webkit-text-size-adjust: 100%;
-  overflow-y: scroll; /* スクロールバーを常時確保し、ライン消去時の横ズレを防ぐ */
 }
+/* スクロールバーを常時確保（htmlのみ）し、内容量変化に伴う横ズレ/再センタリングを防ぐ */
+html { overflow-y: scroll; }
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 16px; border-bottom: 2px solid var(--accent);
   background: linear-gradient(90deg, #2a1a6e, #16235f 50%, #102a6e);
   box-shadow: 0 2px 14px rgba(0,0,0,.45);
 }
-.topbar h1 { font-size: 20px; margin: 0; letter-spacing: .04em; font-weight: 800; text-shadow: 0 0 10px var(--glow); }
-.mode-tag { font-size: 13px; color: var(--muted); }
+.topbar h1 { font-size: 20px; margin: 0; letter-spacing: .04em; font-weight: 800; text-shadow: 0 0 10px var(--glow); flex-shrink: 0; }
+.mode-tag { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; margin-left: 12px; }
 .mode-tag span { color: var(--accent); font-weight: 800; }
 
 .layout {

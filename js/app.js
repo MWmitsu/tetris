@@ -1020,8 +1020,8 @@
     if (pad) pad.moveDir = 0;
   }
   function inputLoop(now) {
-    // 横移動のDAS/ARR
-    if (held.move) {
+    // 横移動のDAS/ARR（フィネス中は無効＝1タップ1マスの精密入力で行き過ぎを防ぐ）
+    if (held.move && G.mode !== "finesse") {
       const h = held.move;
       const el = now - h.start;
       if (!h.fired && el >= settings.das) { h.fired = true; tryMove(h.dir, 0); h.last = now; }
@@ -1151,7 +1151,7 @@
     if (dir !== pad.moveDir) {
       pad.moveDir = dir;
       if (dir !== 0) { if (tryMove(dir, 0)) sfx("move"); pad.moveStart = now; pad.moveLast = now; pad.moveFired = false; }
-    } else if (dir !== 0) {
+    } else if (dir !== 0 && G.mode !== "finesse") {
       const el = now - pad.moveStart;
       if (!pad.moveFired && el >= settings.das) { pad.moveFired = true; tryMove(dir, 0); pad.moveLast = now; }
       else if (pad.moveFired && now - pad.moveLast >= settings.arr) { tryMove(dir, 0); pad.moveLast = now; }
@@ -1308,11 +1308,6 @@
     buildControlsPanel();
     const cr = $("btn-controls-reset");
     if (cr) cr.addEventListener("click", resetControls);
-
-    // 検証パネル
-    $("btn-verify").addEventListener("click", function () {
-      $("verify-out").innerHTML = verifyAll();
-    });
 
     // 盤面保存 / インポート・エクスポート
     $("btn-save").addEventListener("click", function () { saveCurrentTo(G.buildSlot); });

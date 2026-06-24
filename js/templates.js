@@ -13,54 +13,8 @@
 window.TT_TEMPLATES = (function () {
   "use strict";
 
-  const list = [
-    {
-      id: "pc_oi",
-      name: "4ライン パーフェクトクリア (O×8 + I×2)",
-      category: "開幕/PC",
-      pc: true,
-      desc: "Oミノで左8列を4段ぶん埋め、最後に縦Iを2本立てて4ライン同時消し(テトリス)。ハードドロップ・移動・反復の基本に最適。",
-      steps: [
-        { piece: "O", rot: 0, col: 0 },
-        { piece: "O", rot: 0, col: 0 },
-        { piece: "O", rot: 0, col: 2 },
-        { piece: "O", rot: 0, col: 2 },
-        { piece: "O", rot: 0, col: 4 },
-        { piece: "O", rot: 0, col: 4 },
-        { piece: "O", rot: 0, col: 6 },
-        { piece: "O", rot: 0, col: 6 },
-        { piece: "I", rot: 1, col: 8 },
-        { piece: "I", rot: 1, col: 9 },
-      ],
-    },
-    {
-      id: "pc_flat2",
-      name: "2ライン パーフェクトクリア (I×4 + O)",
-      category: "開幕/PC",
-      pc: true,
-      desc: "横Iで下2段の左8列を敷き、最後にOで右2列を埋めて2ライン同時消し。少ない手数でPCの感覚をつかむ反復ドリル。",
-      steps: [
-        { piece: "I", rot: 0, col: 0 },
-        { piece: "I", rot: 0, col: 4 },
-        { piece: "I", rot: 0, col: 0 },
-        { piece: "I", rot: 0, col: 4 },
-        { piece: "O", rot: 0, col: 8 },
-      ],
-    },
-    {
-      id: "flat4",
-      name: "平積みドリル (O×4 フラット)",
-      category: "基礎",
-      pc: false,
-      desc: "左8列を凹凸なく2段だけ平らに積む基礎反復（消去なし）。回転・横移動・ハードドロップの指慣らし用。",
-      steps: [
-        { piece: "O", rot: 0, col: 0 },
-        { piece: "O", rot: 0, col: 2 },
-        { piece: "O", rot: 0, col: 4 },
-        { piece: "O", rot: 0, col: 6 },
-      ],
-    },
-  ];
+  // 手順型ドリルは廃止（要望により削除）。空配列にすると一覧の「手順型ドリル」セクションは出ない。
+  const list = [];
 
   function byId(id) { return list.find(function (t) { return t.id === id; }); }
   function categories() {
