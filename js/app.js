@@ -345,7 +345,7 @@
       // field型・ミノ順指定あり：順に供給し、尽きたらbagへ
       const q = G.template.queue;
       if (G.stepIndex < q.length) piece = q[G.stepIndex];
-      else { ensureQueue(6); piece = G.queue.shift(); ensureQueue(6); }
+      else { piece = nextFromBag(); } // 固定列を使い切ったらbagから供給（ensureQueueはqueue型で早期returnするため直接）
     } else {
       ensureQueue(6);
       piece = G.queue.shift();
@@ -370,6 +370,7 @@
     if (!E.collide(G.grid, a.piece, a.rot, a.px + dx, a.py + dy)) {
       a.px += dx; a.py += dy;
       G.lastRotation = false; // 平行移動したので「直前=回転」を解除（T-spin判定用）
+      if (G.mode === "finesse" && dx !== 0) G.finesseInputs++; // 横移動1マス=1操作（DAS連続も実移動で計数）
       render(); return true;
     }
     return false;
@@ -380,6 +381,7 @@
     if (res) {
       G.active.rot = res.rot; G.active.px = res.px; G.active.py = res.py;
       G.lastRotation = true; G.lastKick = res.kick;
+      if (G.mode === "finesse") G.finesseInputs++; // 回転1回=1操作
       render();
     }
   }
@@ -389,6 +391,7 @@
     if (res) {
       G.active.rot = res.rot; G.active.px = res.px; G.active.py = res.py;
       G.lastRotation = true; G.lastKick = res.kick;
+      if (G.mode === "finesse") G.finesseInputs++; // 回転1回=1操作
       render();
     }
   }
@@ -593,6 +596,7 @@
     G.stepIndex = 0; G.mistake = false; G.targetCells = null;
     G.buildSlot = null;
     G.finesseInputs = 0; G.finessePieces = 0; G.finessePerfect = 0; G.finesseAttempts = 0; G._finPiece = null;
+    clearHeld();
   }
   function startFree() {
     G.mode = "free"; resetCommon();
@@ -689,10 +693,9 @@
       if (landKey(piece, s.rot, s.px) === targetKey) { goalK = sk; break; }
       const rng = pxRange(piece, s.rot);
       const edges = [];
+      // 1操作 = 1マス移動 or 1回転（実プレイの計数と一致させる）
       if (s.px - 1 >= rng.lo) edges.push([s.px - 1, s.rot, "左"]);
       if (s.px + 1 <= rng.hi) edges.push([s.px + 1, s.rot, "右"]);
-      if (rng.lo < s.px) edges.push([rng.lo, s.rot, "左端へ"]);
-      if (rng.hi > s.px) edges.push([rng.hi, s.rot, "右端へ"]);
       [[1, "右回転"], [-1, "左回転"], [2, "180°回転"]].forEach(function (d) {
         const st = { piece: piece, rot: s.rot, px: s.px, py: 0 };
         const res = (d[0] === 2) ? E.rotate180(FIN_EMPTY, st) : E.rotate(FIN_EMPTY, st, d[0]);
@@ -710,9 +713,17 @@
   }
   function describeFinessePath(path) {
     if (!path || !path.length) return "そのままハードドロップ";
-    return path.join(" → ") + " → ハードドロップ";
+    const out = []; let i = 0;
+    while (i < path.length) {
+      let j = i; while (j < path.length && path[j] === path[i]) j++;
+      const n = j - i;
+      out.push(n > 1 ? path[i] + "×" + n : path[i]);
+      i = j;
+    }
+    return out.join(" → ") + " → ハードドロップ";
   }
   function spawnFinessePiece() {
+    clearHeld(); // 押しっぱなしのキーが次の問題に漏れて勝手に動くのを防ぐ
     G.active = E.spawnState(G._finPiece);
     G.canHold = false; G.lastRotation = false;
     G.finesseInputs = 0;
@@ -743,7 +754,7 @@
     refillBag();
     newFinesseTarget();
     modeLabel.textContent = "フィネス練習";
-    flashHint("黄色の目標位置・向きへ、最少の操作回数で置こう（移動・回転=各1操作／長押し壁寄せも1操作）。Spaceで判定。", false);
+    flashHint("黄色の目標位置・向きへ、最少操作で置こう（横移動1マス＝1操作・回転1回＝1操作）。誤れば正解手順を表示し同じ問題を再出題。", false);
   }
   function handleFinesseLock() {
     const a = G.active;
@@ -768,7 +779,6 @@
     flashHint("✗ " + why + "。正解: " + describeFinessePath(res.path) + "（最適 " + opt + " 操作）。同じ問題でもう一度！", true);
     respawnFinesse();
   }
-  function finInput() { if (G.mode === "finesse") G.finesseInputs++; }
 
   // ===== ヒント文 =====
   let hintTimer = null;
@@ -937,6 +947,11 @@
   function resumeMove(dir) {
     held.move = { dir: dir, start: performance.now(), last: performance.now(), fired: false };
   }
+  // 押下中の入力状態をクリア（リセット/モード切替/フィネス次問で、押しっぱなしの暴走を防ぐ）
+  function clearHeld() {
+    held.move = null; held.left = false; held.right = false; held.soft = null;
+    if (pad) pad.moveDir = 0;
+  }
   function inputLoop(now) {
     // 横移動のDAS/ARR
     if (held.move) {
@@ -1068,7 +1083,7 @@
     if (lf && !rt) dir = -1; else if (rt && !lf) dir = 1;
     if (dir !== pad.moveDir) {
       pad.moveDir = dir;
-      if (dir !== 0) { finInput(); tryMove(dir, 0); pad.moveStart = now; pad.moveLast = now; pad.moveFired = false; }
+      if (dir !== 0) { tryMove(dir, 0); pad.moveStart = now; pad.moveLast = now; pad.moveFired = false; }
     } else if (dir !== 0) {
       const el = now - pad.moveStart;
       if (!pad.moveFired && el >= settings.das) { pad.moveFired = true; tryMove(dir, 0); pad.moveLast = now; }
@@ -1080,9 +1095,9 @@
     }
     // 単発アクション（押した瞬間に1回）
     padEdge(gp, "hard", PAD_MAP.hard, hardDrop);
-    padEdge(gp, "cw", PAD_MAP.cw, function () { finInput(); tryRotate(1); });
-    padEdge(gp, "ccw", PAD_MAP.ccw, function () { finInput(); tryRotate(-1); });
-    padEdge(gp, "rot180", PAD_MAP.rot180, function () { finInput(); tryRotate180(); });
+    padEdge(gp, "cw", PAD_MAP.cw, function () { tryRotate(1); });
+    padEdge(gp, "ccw", PAD_MAP.ccw, function () { tryRotate(-1); });
+    padEdge(gp, "rot180", PAD_MAP.rot180, function () { tryRotate180(); });
     padEdge(gp, "hold", PAD_MAP.hold, holdPiece);
     padEdge(gp, "undo", PAD_MAP.undo, undo);
     padEdge(gp, "reset", PAD_MAP.reset, doReset);
@@ -1143,10 +1158,9 @@
   window.addEventListener("gamepaddisconnected", function () { pad.connected = false; updateGamepadStatus(); });
 
   function doKeyAction(act) {
-    if (act === "left" || act === "right" || act === "cw" || act === "ccw" || act === "rot180") finInput();
     if (act === "left") { held.left = true; pressMove(-1); }
     else if (act === "right") { held.right = true; pressMove(1); }
-    else if (act === "soft") { held.soft = { last: 0 }; tryMove(0, 1); }
+    else if (act === "soft") { held.soft = { last: performance.now() }; tryMove(0, 1); }
     else if (act === "hard") hardDrop();
     else if (act === "cw") tryRotate(1);
     else if (act === "ccw") tryRotate(-1);
@@ -1159,7 +1173,11 @@
     // キー割り当て取得中：次の打鍵を採用（Escで取消）
     if (captureKeyAction) {
       e.preventDefault();
-      if (e.key !== "Escape") { KEYMAP[captureKeyAction] = [e.key]; saveMap("tt_keymap_v1", KEYMAP); }
+      if (e.key !== "Escape") {
+        // 英字1文字は大文字小文字の両方を登録（CapsLock/Shiftでも反応するように）
+        KEYMAP[captureKeyAction] = (e.key.length === 1 && /[a-z]/i.test(e.key)) ? [e.key.toLowerCase(), e.key.toUpperCase()] : [e.key];
+        saveMap("tt_keymap_v1", KEYMAP);
+      }
       const done = captureKeyAction; captureKeyAction = null;
       buildControlsPanel();
       flashHint(e.key === "Escape" ? "キー設定を取り消しました。" : ("「" + labelOf(done) + "」のキーを設定しました。"), false);
