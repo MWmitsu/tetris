@@ -219,19 +219,49 @@ window.TT_FUMEN = (function () {
     if (letter && window.TT && window.TT.PIECES[letter]) return window.TT.PIECES[letter].color;
     return "#9aa7b5";
   }
+  // 各ページを「完成形候補」として評価（ミノ色=加点 / 灰=減点 / 20段超=強い減点）。
+  // 通常のテト譜は最終ページが最大スコア＝従来通り。図解系(先頭ページ=色付き完成形, 後続=灰や手順)は
+  // 先頭の色付き完成形を採用する。これにより灰だらけの別フレームを誤って拾うのを防ぐ。
+  function pageScore(ff) {
+    let mino = 0, gray = 0, over = false;
+    for (let y = 0; y < 23; y++) {
+      for (let x = 0; x < 10; x++) {
+        const v = ff.getAt(x, y);
+        if (!v) continue;
+        if (y >= 20) over = true;
+        else if (v === 8) gray++;
+        else mino++;
+      }
+    }
+    return { mino: mino, gray: gray, over: over, score: mino - gray - (over ? 1000 : 0) };
+  }
   function toTargetField(str) {
     let pages;
     try { pages = decodePages(str); }
     catch (e) { return { error: e.message || "デコードに失敗しました" }; }
     if (!pages.length) return { error: "ページがありません" };
-    const last = pages[pages.length - 1];
-    let ff = last.field;
-    if (last.op && isMino(last.op.type)) {
-      ff = ff.copy();
-      ff.fill(last.op.type, last.op.rotation, last.op.x, last.op.y);
+    // 完成形ページの決定:
+    //  - ロック操作あり(=駒を置く通常の手順テト譜): 最終ページ＋そのミノ＝累積完成形（従来通り）
+    //  - ロック操作なし(=フィールドに直接描いた図解系): 慣例で先頭ページが完成形プレビュー。
+    //    先頭が空なら、ミノ最多(灰最少)のページにフォールバック。
+    const hasLock = pages.some(function (p) { return p.lock && p.op && isMino(p.op.type); });
+    let ff, usedPage;
+    if (hasLock) {
+      const last = pages[pages.length - 1];
+      ff = last.field;
+      if (last.op && isMino(last.op.type)) { ff = ff.copy(); ff.fill(last.op.type, last.op.rotation, last.op.x, last.op.y); }
+      usedPage = pages.length;
+    } else {
+      ff = pages[0].field; usedPage = 1;
+      if (pageScore(ff).mino === 0) {
+        let bestScore = -1e9;
+        for (let i = 0; i < pages.length; i++) {
+          const sc = pageScore(pages[i].field).score;
+          if (sc > bestScore) { bestScore = sc; ff = pages[i].field; usedPage = i + 1; }
+        }
+      }
     }
-    // 20段を超える(fumen y>=20)ブロックは本ツール(20行)で表現できないため、
-    // 無警告で切り捨てず明示エラーにする（完成形が不一致になるのを防ぐ）。
+    // 採用ページが20段を超えるブロックを含むなら本ツールでは表現できない
     for (let y = 20; y < 23; y++) {
       for (let x = 0; x < 10; x++) {
         if (ff.getAt(x, y)) return { error: "盤面が20段を超えるブロックがあり、完成形に変換できません。" };
@@ -247,8 +277,8 @@ window.TT_FUMEN = (function () {
         if (v) { field[19 - y][x] = valueToColor(v); any = true; }
       }
     }
-    if (!any) return { error: "盤面が空です（最終ページにブロックがありません）" };
-    return { field: field, pages: pages.length };
+    if (!any) return { error: "盤面が空です（完成形にできるページがありません）" };
+    return { field: field, pages: pages.length, usedPage: usedPage };
   }
 
   // FF → 本ツール盤面(20x10, 行0=上, 色|null)
