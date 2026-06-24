@@ -437,6 +437,7 @@
   }
 
   function lockPiece() {
+    if (G.mode === "finesse") { handleFinesseLock(); return; }
     const a = G.active;
     pushHistory();
     // T-spin 判定（固定前の盤面で。Tの隅セルはT自身が占めないため pre-lock で正しい）
@@ -591,6 +592,7 @@
     G.lastRotation = false; G.lastKick = 0; G.lastClearLabel = ""; G._pendingSpin = "none";
     G.stepIndex = 0; G.mistake = false; G.targetCells = null;
     G.buildSlot = null;
+    G.finesseInputs = 0; G.finessePieces = 0; G.finessePerfect = 0; G._finPiece = null;
   }
   function startFree() {
     G.mode = "free"; resetCommon();
@@ -661,6 +663,89 @@
     render();
   }
 
+  // ===== フィネス練習（最少操作で目標位置へ置く） =====
+  const FIN_EMPTY = E.emptyGrid(); // 算出用の空盤面（読み取り専用・破壊しない）
+  const FIN_ROTSET = { O: [0], I: [0, 1], S: [0, 1], Z: [0, 1], T: [0, 1, 2, 3], L: [0, 1, 2, 3], J: [0, 1, 2, 3] };
+  function pxRange(piece, rot) {
+    const cells = E.PIECES[piece].states[rot];
+    let minC = 9, maxC = -9;
+    for (let i = 0; i < cells.length; i++) { minC = Math.min(minC, cells[i][1]); maxC = Math.max(maxC, cells[i][1]); }
+    return { lo: -minC, hi: COLS - 1 - maxC };
+  }
+  function landKey(piece, rot, px) {
+    const py = E.dropY(FIN_EMPTY, piece, rot, px, -2);
+    return E.cellKey(E.absCells(piece, rot, px, py));
+  }
+  // 空盤面で spawn(出現) から目標の着地形へ到達する最少入力数をBFSで算出。
+  // 1入力 = 左/右タップ・左右DAS(壁まで)・右/左/180回転。ハードドロップは数えない。
+  function optimalFinesse(piece, targetKey) {
+    const startPx = E.PIECES[piece].spawnCol;
+    const q = [{ px: startPx, rot: 0, c: 0 }];
+    const seen = {}; seen[startPx + ",0"] = 0;
+    while (q.length) {
+      const s = q.shift();
+      if (landKey(piece, s.rot, s.px) === targetKey) return s.c;
+      const rng = pxRange(piece, s.rot);
+      const nexts = [];
+      if (s.px - 1 >= rng.lo) nexts.push([s.px - 1, s.rot]);   // 左タップ
+      if (s.px + 1 <= rng.hi) nexts.push([s.px + 1, s.rot]);   // 右タップ
+      if (rng.lo < s.px) nexts.push([rng.lo, s.rot]);          // 左DAS
+      if (rng.hi > s.px) nexts.push([rng.hi, s.rot]);          // 右DAS
+      [1, -1, 2].forEach(function (dir) {                       // 右/左/180回転（壁蹴り込み）
+        const st = { piece: piece, rot: s.rot, px: s.px, py: 0 };
+        const res = (dir === 2) ? E.rotate180(FIN_EMPTY, st) : E.rotate(FIN_EMPTY, st, dir);
+        if (res) nexts.push([res.px, res.rot]);
+      });
+      for (let i = 0; i < nexts.length; i++) {
+        const k = nexts[i][0] + "," + nexts[i][1];
+        if (seen[k] === undefined) { seen[k] = s.c + 1; q.push({ px: nexts[i][0], rot: nexts[i][1], c: s.c + 1 }); }
+      }
+    }
+    return 99;
+  }
+  function newFinesseTarget(samePiece) {
+    G.grid = E.emptyGrid();
+    const piece = samePiece || nextFromBag();
+    G._finPiece = piece;
+    const rots = FIN_ROTSET[piece] || [0];
+    const rot = rots[Math.floor(Math.random() * rots.length)];
+    const rng = pxRange(piece, rot);
+    const px = rng.lo + Math.floor(Math.random() * (rng.hi - rng.lo + 1));
+    const py = E.dropY(G.grid, piece, rot, px, -2);
+    G.targetCells = E.absCells(piece, rot, px, py);
+    G.active = E.spawnState(piece);
+    G.canHold = false; G.lastRotation = false;
+    G.finesseInputs = 0;
+    render();
+  }
+  function startFinesse() {
+    G.mode = "finesse"; G.template = null; resetCommon();
+    refillBag();
+    newFinesseTarget();
+    modeLabel.textContent = "フィネス練習";
+    flashHint("黄色の目標位置・向きへ、最少の操作回数で置こう（移動・回転=各1操作／長押し壁寄せも1操作）。Spaceで判定。", false);
+  }
+  function handleFinesseLock() {
+    const a = G.active;
+    const landed = E.cellKey(E.absCells(a.piece, a.rot, a.px, a.py));
+    const target = E.cellKey(G.targetCells);
+    if (landed !== target) {
+      flashHint("目標と違う位置です。黄色のハイライトへ最少操作で置き直そう。", true);
+      newFinesseTarget(a.piece); // 同じミノで再挑戦（目標は出し直し）
+      return;
+    }
+    const used = G.finesseInputs;
+    const opt = optimalFinesse(a.piece, target);
+    G.finessePieces++; G.pieces++;
+    const perfect = used <= opt;
+    if (perfect) G.finessePerfect++;
+    const rate = Math.round(100 * G.finessePerfect / G.finessePieces);
+    modeLabel.textContent = "フィネス 完璧 " + G.finessePerfect + "/" + G.finessePieces + " (" + rate + "%)";
+    flashHint((perfect ? "✓ 完璧！ " : "△ もっと少なく ") + "あなた " + used + " 操作 / 最適 " + opt + " 操作", !perfect);
+    newFinesseTarget();
+  }
+  function finInput() { if (G.mode === "finesse") G.finesseInputs++; }
+
   // ===== ヒント文 =====
   let hintTimer = null;
   function flashHint(msg, isErr) {
@@ -708,7 +793,7 @@
     }
 
     // 手順型テンプレの目標(ヒント): 次の1手の置き場所
-    if (settings.showHint && G.mode === "template" && G.targetCells) {
+    if (settings.showHint && (G.mode === "template" || G.mode === "finesse") && G.targetCells) {
       bctx.save();
       bctx.strokeStyle = "rgba(255,255,80,0.95)";
       bctx.lineWidth = 2;
@@ -842,8 +927,8 @@
     }
     // ゲームパッド(Joy-Con等)
     pollGamepad(now);
-    // gravity
-    if (settings.gravity && G.active && !G.over && G.mode !== "template") {
+    // gravity（自由/掘りのみ。テンプレ・フィネスは自動落下しない）
+    if (settings.gravity && G.active && !G.over && (G.mode === "free" || G.mode === "dig")) {
       if (now - G.lastGravity >= settings.gravityMs) {
         if (!tryMove(0, 1)) { hardDropNoExtend(); }
         G.lastGravity = now;
@@ -959,7 +1044,7 @@
     if (lf && !rt) dir = -1; else if (rt && !lf) dir = 1;
     if (dir !== pad.moveDir) {
       pad.moveDir = dir;
-      if (dir !== 0) { tryMove(dir, 0); pad.moveStart = now; pad.moveLast = now; pad.moveFired = false; }
+      if (dir !== 0) { finInput(); tryMove(dir, 0); pad.moveStart = now; pad.moveLast = now; pad.moveFired = false; }
     } else if (dir !== 0) {
       const el = now - pad.moveStart;
       if (!pad.moveFired && el >= settings.das) { pad.moveFired = true; tryMove(dir, 0); pad.moveLast = now; }
@@ -971,9 +1056,9 @@
     }
     // 単発アクション（押した瞬間に1回）
     padEdge(gp, "hard", PAD_MAP.hard, hardDrop);
-    padEdge(gp, "cw", PAD_MAP.cw, function () { tryRotate(1); });
-    padEdge(gp, "ccw", PAD_MAP.ccw, function () { tryRotate(-1); });
-    padEdge(gp, "rot180", PAD_MAP.rot180, tryRotate180);
+    padEdge(gp, "cw", PAD_MAP.cw, function () { finInput(); tryRotate(1); });
+    padEdge(gp, "ccw", PAD_MAP.ccw, function () { finInput(); tryRotate(-1); });
+    padEdge(gp, "rot180", PAD_MAP.rot180, function () { finInput(); tryRotate180(); });
     padEdge(gp, "hold", PAD_MAP.hold, holdPiece);
     padEdge(gp, "undo", PAD_MAP.undo, undo);
     padEdge(gp, "reset", PAD_MAP.reset, doReset);
@@ -1034,6 +1119,7 @@
   window.addEventListener("gamepaddisconnected", function () { pad.connected = false; updateGamepadStatus(); });
 
   function doKeyAction(act) {
+    if (act === "left" || act === "right" || act === "cw" || act === "ccw" || act === "rot180") finInput();
     if (act === "left") { held.left = true; pressMove(-1); }
     else if (act === "right") { held.right = true; pressMove(1); }
     else if (act === "soft") { held.soft = { last: 0 }; tryMove(0, 1); }
@@ -1073,6 +1159,7 @@
   function doReset() {
     if (G.mode === "free") startFree();
     else if (G.mode === "template") resetTemplate();
+    else if (G.mode === "finesse") startFinesse();
     else startDig(8);
   }
 
@@ -1081,6 +1168,7 @@
     // モードボタン
     $("btn-free").addEventListener("click", startFree);
     $("btn-dig").addEventListener("click", function () { startDig(8); });
+    $("btn-finesse").addEventListener("click", startFinesse);
     $("btn-reset").addEventListener("click", doReset);
     $("btn-undo").addEventListener("click", undo);
 
