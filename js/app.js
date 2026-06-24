@@ -592,7 +592,7 @@
     G.lastRotation = false; G.lastKick = 0; G.lastClearLabel = ""; G._pendingSpin = "none";
     G.stepIndex = 0; G.mistake = false; G.targetCells = null;
     G.buildSlot = null;
-    G.finesseInputs = 0; G.finessePieces = 0; G.finessePerfect = 0; G._finPiece = null;
+    G.finesseInputs = 0; G.finessePieces = 0; G.finessePerfect = 0; G.finesseAttempts = 0; G._finPiece = null;
   }
   function startFree() {
     G.mode = "free"; resetCommon();
@@ -676,36 +676,51 @@
     const py = E.dropY(FIN_EMPTY, piece, rot, px, -2);
     return E.cellKey(E.absCells(piece, rot, px, py));
   }
-  // 空盤面で spawn(出現) から目標の着地形へ到達する最少入力数をBFSで算出。
+  // 空盤面で spawn(出現) から目標の着地形へ到達する最少入力列をBFSで算出。
   // 1入力 = 左/右タップ・左右DAS(壁まで)・右/左/180回転。ハードドロップは数えない。
-  function optimalFinesse(piece, targetKey) {
-    const startPx = E.PIECES[piece].spawnCol;
-    const q = [{ px: startPx, rot: 0, c: 0 }];
-    const seen = {}; seen[startPx + ",0"] = 0;
+  // 返り値: { count, path:[操作名...] }
+  function optimalFinesseResult(piece, targetKey) {
+    const startPx = E.PIECES[piece].spawnCol, startK = startPx + ",0";
+    const q = [{ px: startPx, rot: 0 }];
+    const par = {}; par[startK] = null; // k -> {pk, label}
+    let goalK = null;
     while (q.length) {
-      const s = q.shift();
-      if (landKey(piece, s.rot, s.px) === targetKey) return s.c;
+      const s = q.shift(), sk = s.px + "," + s.rot;
+      if (landKey(piece, s.rot, s.px) === targetKey) { goalK = sk; break; }
       const rng = pxRange(piece, s.rot);
-      const nexts = [];
-      if (s.px - 1 >= rng.lo) nexts.push([s.px - 1, s.rot]);   // 左タップ
-      if (s.px + 1 <= rng.hi) nexts.push([s.px + 1, s.rot]);   // 右タップ
-      if (rng.lo < s.px) nexts.push([rng.lo, s.rot]);          // 左DAS
-      if (rng.hi > s.px) nexts.push([rng.hi, s.rot]);          // 右DAS
-      [1, -1, 2].forEach(function (dir) {                       // 右/左/180回転（壁蹴り込み）
+      const edges = [];
+      if (s.px - 1 >= rng.lo) edges.push([s.px - 1, s.rot, "左"]);
+      if (s.px + 1 <= rng.hi) edges.push([s.px + 1, s.rot, "右"]);
+      if (rng.lo < s.px) edges.push([rng.lo, s.rot, "左端へ"]);
+      if (rng.hi > s.px) edges.push([rng.hi, s.rot, "右端へ"]);
+      [[1, "右回転"], [-1, "左回転"], [2, "180°回転"]].forEach(function (d) {
         const st = { piece: piece, rot: s.rot, px: s.px, py: 0 };
-        const res = (dir === 2) ? E.rotate180(FIN_EMPTY, st) : E.rotate(FIN_EMPTY, st, dir);
-        if (res) nexts.push([res.px, res.rot]);
+        const res = (d[0] === 2) ? E.rotate180(FIN_EMPTY, st) : E.rotate(FIN_EMPTY, st, d[0]);
+        if (res) edges.push([res.px, res.rot, d[1]]);
       });
-      for (let i = 0; i < nexts.length; i++) {
-        const k = nexts[i][0] + "," + nexts[i][1];
-        if (seen[k] === undefined) { seen[k] = s.c + 1; q.push({ px: nexts[i][0], rot: nexts[i][1], c: s.c + 1 }); }
+      for (let i = 0; i < edges.length; i++) {
+        const k = edges[i][0] + "," + edges[i][1];
+        if (par[k] === undefined) { par[k] = { pk: sk, label: edges[i][2] }; q.push({ px: edges[i][0], rot: edges[i][1] }); }
       }
     }
-    return 99;
+    if (goalK === null) return { count: 99, path: ["(到達不可)"] };
+    const path = []; let k = goalK;
+    while (par[k]) { path.unshift(par[k].label); k = par[k].pk; }
+    return { count: path.length, path: path };
   }
-  function newFinesseTarget(samePiece) {
+  function describeFinessePath(path) {
+    if (!path || !path.length) return "そのままハードドロップ";
+    return path.join(" → ") + " → ハードドロップ";
+  }
+  function spawnFinessePiece() {
+    G.active = E.spawnState(G._finPiece);
+    G.canHold = false; G.lastRotation = false;
+    G.finesseInputs = 0;
+    render();
+  }
+  function newFinesseTarget() {
     G.grid = E.emptyGrid();
-    const piece = samePiece || nextFromBag();
+    const piece = nextFromBag();
     G._finPiece = piece;
     const rots = FIN_ROTSET[piece] || [0];
     const rot = rots[Math.floor(Math.random() * rots.length)];
@@ -713,10 +728,15 @@
     const px = rng.lo + Math.floor(Math.random() * (rng.hi - rng.lo + 1));
     const py = E.dropY(G.grid, piece, rot, px, -2);
     G.targetCells = E.absCells(piece, rot, px, py);
-    G.active = E.spawnState(piece);
-    G.canHold = false; G.lastRotation = false;
-    G.finesseInputs = 0;
-    render();
+    spawnFinessePiece();
+  }
+  function respawnFinesse() { // 同じ問題（同じミノ・同じ目標）で再挑戦
+    G.grid = E.emptyGrid();
+    spawnFinessePiece();
+  }
+  function updateFinesseLabel() {
+    const rate = G.finesseAttempts ? Math.round(100 * G.finessePerfect / G.finesseAttempts) : 0;
+    modeLabel.textContent = "フィネス 完璧 " + G.finessePerfect + "/" + G.finesseAttempts + " (" + rate + "%)";
   }
   function startFinesse() {
     G.mode = "finesse"; G.template = null; resetCommon();
@@ -729,20 +749,24 @@
     const a = G.active;
     const landed = E.cellKey(E.absCells(a.piece, a.rot, a.px, a.py));
     const target = E.cellKey(G.targetCells);
-    if (landed !== target) {
-      flashHint("目標と違う位置です。黄色のハイライトへ最少操作で置き直そう。", true);
-      newFinesseTarget(a.piece); // 同じミノで再挑戦（目標は出し直し）
+    const used = G.finesseInputs;
+    const res = optimalFinesseResult(a.piece, target);
+    const opt = res.count;
+    const placedRight = (landed === target);
+    G.finesseAttempts++;
+    if (placedRight && used <= opt) {
+      // 完璧 → 次の問題へ
+      G.finessePerfect++; G.finessePieces++; G.pieces++;
+      updateFinesseLabel();
+      flashHint("✓ 完璧！ " + used + " 操作（最適 " + opt + "）。次の問題へ ▶", false);
+      newFinesseTarget();
       return;
     }
-    const used = G.finesseInputs;
-    const opt = optimalFinesse(a.piece, target);
-    G.finessePieces++; G.pieces++;
-    const perfect = used <= opt;
-    if (perfect) G.finessePerfect++;
-    const rate = Math.round(100 * G.finessePerfect / G.finessePieces);
-    modeLabel.textContent = "フィネス 完璧 " + G.finessePerfect + "/" + G.finessePieces + " (" + rate + "%)";
-    flashHint((perfect ? "✓ 完璧！ " : "△ もっと少なく ") + "あなた " + used + " 操作 / 最適 " + opt + " 操作", !perfect);
-    newFinesseTarget();
+    // 不正解（位置違い or 操作過多）→ 正解の手順を提示し、同じ問題で再挑戦
+    updateFinesseLabel();
+    const why = placedRight ? ("操作が多い：あなた " + used + " / 最適 " + opt) : "目標と違う位置";
+    flashHint("✗ " + why + "。正解: " + describeFinessePath(res.path) + "（最適 " + opt + " 操作）。同じ問題でもう一度！", true);
+    respawnFinesse();
   }
   function finInput() { if (G.mode === "finesse") G.finesseInputs++; }
 

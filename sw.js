@@ -5,7 +5,7 @@
 //  オフライン時のみキャッシュから配信する。これにより更新が確実に届き、かつオフラインでも起動できる。
 //  キャッシュ名(バージョン)を変えると旧キャッシュは activate 時に破棄される。
 // ============================================================
-const CACHE = 'tetris-practice-v6';
+const CACHE = 'tetris-practice-v7';
 
 const CORE = [
   './',
@@ -47,9 +47,10 @@ self.addEventListener('fetch', (e) => {
   try { sameOrigin = new URL(req.url).origin === self.location.origin; } catch (_) {}
   if (!sameOrigin) return;
 
-  // network-first: 最新を優先。成功したらキャッシュ更新。失敗(オフライン)時はキャッシュ→なければindex.html。
+  // network-first: 最新を優先。cache:'reload' でブラウザHTTPキャッシュを迂回し、更新を確実に取得。
+  // 成功したらSWキャッシュ更新。失敗(オフライン)時はキャッシュ→なければindex.html。
   e.respondWith(
-    fetch(req)
+    fetch(req, { cache: 'reload' })
       .then((res) => {
         if (res && res.ok) {
           const copy = res.clone();
