@@ -281,6 +281,50 @@
     }
     return ord;
   }
+  // 色分解できない形向け：色付き占有を任意ミノで到達可能タイリングし設置順を得る。
+  // distinctOnly=true で各ミノ種を1個までに制限（実バッグ相当の手順を優先）。
+  function tilingGuide(board, prefill, distinctOnly) {
+    const occ = []; for (let r = 0; r < ROWS; r++) occ.push(new Array(COLS).fill(false));
+    if (prefill) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (prefill[r][c]) occ[r][c] = true;
+    const tset = new Set();
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (board[r][c] && !SETUP_GRAYS[board[r][c]]) tset.add(r + "," + c);
+    const LK = ["I", "O", "T", "S", "Z", "J", "L"];
+    function dropReach(cells) {
+      const top = {}; cells.forEach(function (k) { if (top[k[1]] === undefined || k[0] < top[k[1]]) top[k[1]] = k[0]; });
+      for (const c in top) for (let r = 0; r < top[c]; r++) if (occ[r][+c]) return false;
+      return restsPlaceable(occ, cells);
+    }
+    const order = []; let steps = 0; const used = {};
+    function solve(rem) {
+      if (rem.size === 0) return true;
+      if (steps++ > 60000) return false;
+      const arr = []; rem.forEach(function (s) { arr.push(s.split(",").map(Number)); });
+      arr.sort(function (a, b) { return b[0] - a[0] || a[1] - b[1]; });
+      const must = arr[0];
+      for (let li = 0; li < 7; li++) {
+        const L = LK[li];
+        if (distinctOnly && used[L]) continue;
+        const sts = E.PIECES[L].states;
+        for (let s = 0; s < sts.length; s++) {
+          const st = sts[s];
+          for (let a = 0; a < st.length; a++) {
+            const dr = must[0] - st[a][0], dc = must[1] - st[a][1];
+            const abs = st.map(function (c) { return [c[0] + dr, c[1] + dc]; });
+            if (!abs.every(function (c) { return rem.has(c[0] + "," + c[1]); })) continue;
+            const dk = dropReach(abs); if (!dk && !restsPlaceable(occ, abs)) continue;
+            abs.forEach(function (c) { rem.delete(c[0] + "," + c[1]); occ[c[0]][c[1]] = true; });
+            used[L] = (used[L] || 0) + 1;
+            order.push({ piece: L, cells: abs.map(function (c) { return [c[0], c[1]]; }), kind: dk ? "drop" : "spin" });
+            if (solve(rem)) return true;
+            order.pop(); used[L]--;
+            abs.forEach(function (c) { rem.add(c[0] + "," + c[1]); occ[c[0]][c[1]] = false; });
+          }
+        }
+      }
+      return false;
+    }
+    return solve(new Set(tset)) ? order.slice() : null;
+  }
   function expandSetups() {
     const out = [];
     if (!window.TT_FUMEN || !window.TT_SETUPS) return out;
@@ -310,10 +354,13 @@
           if (!(lowest === ROWS - 1 && floatCols <= 1)) continue; // 床から浮いた差分フレーム図
           const label = (sec.labels && sec.labels[i]) || (su.name + " " + (n + 1));
           const pf = gray ? prefill : null;
-          // 色連結でミノ分解→接地順が出れば設置順ガイドを付与（出なければ形ビルドのみ）
+          // 設置順ガイドを必ず用意：色分解(1個ずつ・清書色)優先→不可なら1個ずつタイリング→任意タイリング。
+          // これを開始時に供給することで「来たミノで組めない」を解消し、必ず組める＋手順を学べる。
           let guide = null;
           const seg = segmentPieces(board);
           if (seg) guide = buildGuide(seg, pf, board);
+          if (!guide) guide = tilingGuide(board, pf, true) || tilingGuide(board, pf, false);
+          if (!guide) continue; // 到達可能な設置順が全く無い形は練習対象外（理論上ここには来ない想定）
           out.push({
             id: "su_" + su.key + "_" + n,
             name: label, group: su.name, type: "field",
@@ -339,6 +386,12 @@
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
       if (t.prefill[r] && t.prefill[r][c]) G.grid[r][c] = t.prefill[r][c];
     }
+  }
+  // 収録セットアップ：その形を必ず組める「設置順ガイドのミノ列」をネクストに供給する。
+  // （ランダムバッグだと組めるミノが来ず詰むため。spawnFromQueueの前に呼ぶ）
+  function feedGuideBag() {
+    const t = G.template;
+    if (t && t.setup && t.guide && t.guide.length) { G.bag = t.guide.map(function (g) { return g.piece; }); G.queue = []; }
   }
 
   // ===== 暗記モード（ヒント漸減＋設置順ガイド＋習熟＋弱点ドリル） =====
@@ -579,18 +632,17 @@
       t = setupByName(left ? "1巡目 左" : "1巡目 右");
       head = "①1巡目【" + (left ? "左(ホールド)型" : "右(反転)型") + "】" + (left ? "T" : "I") + "が先。";
     } else if (ch.stage === 2) {
-      // 実NEXTで理想P1-P5のどれが組めるか判定→組めるものからランダム選択。無ければ妥協形。
+      // 理想P1-P5から1つ選び（複数候補からランダム）、そのパターンを必ず組める手順で出題。
       const pick = pickChainPattern(bag);
       if (pick) {
         ch.route = (pick.route === "ideal") ? "ideal" : "compromise";
         dynTemplate = patternToTemplate(pick.pat, pick.route);
-        const more = (pick.n > 1) ? "（組める理想形" + pick.n + "種からランダム選択）" : "";
+        const more = (pick.n > 1) ? "（理想形" + pick.n + "種から選択）" : "";
         const head2 = (pick.route === "ideal")
-          ? ("②2巡目【理想形 " + pick.pat.key + "】このNEXTで組めます！" + more)
-          : (pick.hard ? "②2巡目【妥協形】理想形が組めない難しい並び→妥協形で対応（工夫して挑戦）。"
-                       : "②2巡目【妥協形 " + pick.pat.key + "】理想形が組めない→妥協形へ自動切替。");
+          ? ("②2巡目【理想形 " + pick.pat.key + "】を練習" + more)
+          : "②2巡目【妥協形 " + pick.pat.key + "】を練習（理想形が組みにくい型）。";
         pendingChainBag = bag.slice(); ch.bag = bag.slice();
-        startTemplate("__hc_dyn__"); // dynTemplate を起動
+        startTemplate("__hc_dyn__"); // dynTemplate を起動（ガイド順のミノを供給）
         flashHint("【通し練習 2/3】" + head2 + "　" + setupHintText(G.template), false);
         return;
       }
@@ -1082,6 +1134,7 @@
     if (G.template && G.template.prefill) { G.grid = E.emptyGrid(); applyTemplatePrefill(); }
     else if (!boardEmpty()) G.grid = E.emptyGrid(); // PCでない完了は次の反復のため盤面をクリア
     G.stepIndex = 0; G.mistake = false; G.lastRotation = false; G.canHold = true; G.hold = null;
+    if (G.template && G.template.setup) feedGuideBag(); // 反復時もガイド順を再供給（必ず組める）
     flashHint((lead ? lead + " " : "") + "▶ " + G.cycles + "巡目！", false);
     if (tplType() === "fsteps") { setFStep(0); return; }
     spawnFromQueue();
@@ -1154,9 +1207,9 @@
     if ((t.type === "field") && !t.field) { enterBuildMode(t); return; } // 未設定 → 盤面エディタ
     G.mode = "template"; G.template = t; resetCommon();
     G.drill = false;
-    // 通し練習：この巡のバッグを固定供給（2巡目の判定とプレイのミノを一致させる）
-    if (pendingChainBag) { G.bag = pendingChainBag.slice(); G.queue = []; pendingChainBag = null; }
+    if (pendingChainBag) { pendingChainBag = null; } // 旧:固定供給。現在はガイド順供給(feedGuideBag)に統一
     applyTemplatePrefill();
+    feedGuideBag(); // セットアップ形は必ず組めるガイド順のミノを供給
     if (t.setup) {
       G.hintLevel = clampHint(masteryOf(t.id).lvl);
       G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
@@ -1201,9 +1254,8 @@
   function resetTemplate() {
     if (G.mode !== "template" || !G.template) return;
     resetCommon();
-    // 通し練習中は同じ巡のバッグを再供給（判定したミノで組み直せるように）
-    if (chainActive() && G.chain.bag) { G.bag = G.chain.bag.slice(); G.queue = []; }
     applyTemplatePrefill();
+    feedGuideBag(); // セットアップ形は同じガイド順のミノを再供給（必ず組み直せる）
     if (G.template.setup) {
       G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
       G.attemptMistake = false;
