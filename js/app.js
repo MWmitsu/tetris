@@ -861,7 +861,7 @@
   // ChromeはJoy-Con L+Rを1台の "standard" ゲームパッドに統合する。
   // 標準マッピング: 0=B 1=A 2=Y 3=X / 4=L 5=R 6=ZL 7=ZR / 8=- 9=+ /
   //   12=↑ 13=↓ 14=← 15=→ / axes[0,1]=左スティック, axes[2,3]=右スティック。
-  const PAD_MAP = {
+  const PAD_MAP_DEFAULT = {
     left:   { btn: [14], axisNeg: [0] },         // ← / 左スティック左
     right:  { btn: [15], axisPos: [0] },         // → / 左スティック右
     soft:   { btn: [13], axisPos: [1] },         // ↓ / 左スティック下
@@ -873,6 +873,34 @@
     undo:   { btn: [8, 6] },                        // - / ZL = 一手戻す
     reset:  { btn: [9, 7] },                        // + / ZR = リセット
   };
+  // キーボード既定（複数キー可）。localStorageでユーザー上書き可。
+  const KEYMAP_DEFAULT = {
+    left: ["ArrowLeft"], right: ["ArrowRight"], soft: ["ArrowDown"], hard: [" "],
+    cw: ["ArrowUp", "x", "X"], ccw: ["z", "Z", "Control"], rot180: ["a", "A"],
+    hold: ["Shift", "c", "C"], undo: ["Backspace", "u", "U"], reset: ["r", "R"],
+  };
+  const ACTIONS = [
+    { k: "left", label: "左移動" }, { k: "right", label: "右移動" }, { k: "soft", label: "ソフトドロップ" },
+    { k: "hard", label: "ハードドロップ" }, { k: "cw", label: "右回転" }, { k: "ccw", label: "左回転" },
+    { k: "rot180", label: "180°回転" }, { k: "hold", label: "ホールド" }, { k: "undo", label: "一手戻す" }, { k: "reset", label: "リセット" },
+  ];
+  function loadMap(lsKey, def) {
+    try {
+      const s = JSON.parse(localStorage.getItem(lsKey) || "null");
+      const out = JSON.parse(JSON.stringify(def));
+      if (s && typeof s === "object") Object.keys(def).forEach(function (a) { if (s[a]) out[a] = s[a]; });
+      return out;
+    } catch (e) { return JSON.parse(JSON.stringify(def)); }
+  }
+  function saveMap(lsKey, map) { try { localStorage.setItem(lsKey, JSON.stringify(map)); } catch (e) {} }
+  function labelOf(a) { for (let i = 0; i < ACTIONS.length; i++) if (ACTIONS[i].k === a) return ACTIONS[i].label; return a; }
+  let PAD_MAP = loadMap("tt_padmap_v1", PAD_MAP_DEFAULT);
+  let KEYMAP = loadMap("tt_keymap_v1", KEYMAP_DEFAULT);
+  let captureKeyAction = null, capturePadAction = null;
+  function actionForKey(k) {
+    for (let i = 0; i < ACTIONS.length; i++) { const a = ACTIONS[i].k; if (KEYMAP[a] && KEYMAP[a].indexOf(k) >= 0) return a; }
+    return null;
+  }
   const PAD_AXIS_TH = 0.55;
   const pad = {
     enabled: true, connected: false, id: "",
@@ -907,6 +935,23 @@
     if (gp) pad.id = gp.id;
     if (was !== pad.connected) updateGamepadStatus();
     if (!gp) { pad.moveDir = 0; return; }
+
+    // パッドのボタン割り当て取得中：新たに押されたボタンを採用
+    if (capturePadAction) {
+      for (let i = 0; i < gp.buttons.length; i++) {
+        if (gp.buttons[i].pressed && !(pad._capPrev && pad._capPrev[i])) {
+          PAD_MAP[capturePadAction] = { btn: [i] };
+          saveMap("tt_padmap_v1", PAD_MAP);
+          const done = capturePadAction; capturePadAction = null; pad._capPrev = null;
+          buildControlsPanel();
+          flashHint("「" + labelOf(done) + "」のパッドボタンを設定しました。", false);
+          return;
+        }
+      }
+      pad._capPrev = {};
+      for (let i = 0; i < gp.buttons.length; i++) if (gp.buttons[i].pressed) pad._capPrev[i] = true;
+      return; // 取得中は通常操作を行わない
+    }
 
     // 横移動（キーボードと同じ DAS/ARR）
     const lf = padOn(gp, PAD_MAP.left), rt = padOn(gp, PAD_MAP.right);
@@ -946,34 +991,83 @@
     }
   }
 
+  // ===== 操作設定（キー/パッドのリマップUI） =====
+  const KEY_DISP = { " ": "Space", "ArrowLeft": "←", "ArrowRight": "→", "ArrowUp": "↑", "ArrowDown": "↓", "Control": "Ctrl", "Backspace": "⌫", "Shift": "Shift", "Escape": "Esc" };
+  const PAD_BTN_NAME = { 0: "B", 1: "A", 2: "Y", 3: "X", 4: "L", 5: "R", 6: "ZL", 7: "ZR", 8: "−", 9: "＋", 10: "L押", 11: "Rヤ", 12: "↑", 13: "↓", 14: "←", 15: "→", 16: "Home" };
+  function keyDisp(keys) {
+    if (!keys || !keys.length) return "（なし）";
+    return keys.map(function (k) { return KEY_DISP[k] || (k.length === 1 ? k.toUpperCase() : k); }).join(" / ");
+  }
+  function padDisp(spec) {
+    if (!spec) return "（なし）";
+    const parts = [];
+    (spec.btn || []).forEach(function (i) { parts.push(PAD_BTN_NAME[i] || ("b" + i)); });
+    if ((spec.axisNeg && spec.axisNeg.length) || (spec.axisPos && spec.axisPos.length)) parts.push("Lスティック");
+    return parts.length ? parts.join(" / ") : "（なし）";
+  }
+  function buildControlsPanel() {
+    const root = $("controls-list"); if (!root) return;
+    root.innerHTML = "";
+    ACTIONS.forEach(function (a) {
+      const row = document.createElement("div"); row.className = "ctrl-map-row";
+      const lab = document.createElement("span"); lab.className = "cm-label"; lab.textContent = a.label;
+      const kk = document.createElement("button"); kk.className = "cm-btn cm-key"; kk.textContent = keyDisp(KEYMAP[a.k]);
+      kk.title = "クリックして新しいキーを押す";
+      kk.addEventListener("click", function () { capturePadAction = null; captureKeyAction = a.k; flashHint("「" + a.label + "」に割り当てるキーを押してください（Escで取消）。", false); });
+      const pp = document.createElement("button"); pp.className = "cm-btn cm-pad"; pp.textContent = padDisp(PAD_MAP[a.k]);
+      pp.title = "クリックして新しいパッドボタンを押す";
+      pp.addEventListener("click", function () { captureKeyAction = null; capturePadAction = a.k; pad._capPrev = null; flashHint("「" + a.label + "」に割り当てるパッドのボタンを押してください。", false); });
+      row.appendChild(lab); row.appendChild(kk); row.appendChild(pp);
+      root.appendChild(row);
+    });
+  }
+  function resetControls() {
+    KEYMAP = JSON.parse(JSON.stringify(KEYMAP_DEFAULT));
+    PAD_MAP = JSON.parse(JSON.stringify(PAD_MAP_DEFAULT));
+    saveMap("tt_keymap_v1", KEYMAP); saveMap("tt_padmap_v1", PAD_MAP);
+    captureKeyAction = null; capturePadAction = null;
+    buildControlsPanel();
+    flashHint("操作設定をデフォルトに戻しました。", false);
+  }
+
   window.addEventListener("gamepadconnected", function () { updateGamepadStatus(); });
   window.addEventListener("gamepaddisconnected", function () { pad.connected = false; updateGamepadStatus(); });
 
+  function doKeyAction(act) {
+    if (act === "left") { held.left = true; pressMove(-1); }
+    else if (act === "right") { held.right = true; pressMove(1); }
+    else if (act === "soft") { held.soft = { last: 0 }; tryMove(0, 1); }
+    else if (act === "hard") hardDrop();
+    else if (act === "cw") tryRotate(1);
+    else if (act === "ccw") tryRotate(-1);
+    else if (act === "rot180") tryRotate180();
+    else if (act === "hold") holdPiece();
+    else if (act === "undo") undo();
+    else if (act === "reset") doReset();
+  }
   window.addEventListener("keydown", function (e) {
-    if (e.repeat) {
-      // 横/ソフトはDAS/ARRで処理。その他(回転/ハードドロップ/ホールド/Undo/Reset)は
-      // 1押下=1回のみにするため、ブラウザのキーリピートはすべて無視する。
-      if (["ArrowLeft", "ArrowRight", "ArrowDown"].indexOf(e.key) >= 0) e.preventDefault();
+    // キー割り当て取得中：次の打鍵を採用（Escで取消）
+    if (captureKeyAction) {
+      e.preventDefault();
+      if (e.key !== "Escape") { KEYMAP[captureKeyAction] = [e.key]; saveMap("tt_keymap_v1", KEYMAP); }
+      const done = captureKeyAction; captureKeyAction = null;
+      buildControlsPanel();
+      flashHint(e.key === "Escape" ? "キー設定を取り消しました。" : ("「" + labelOf(done) + "」のキーを設定しました。"), false);
       return;
     }
-    const k = e.key;
-    if (k === "ArrowLeft") { e.preventDefault(); held.left = true; pressMove(-1); }
-    else if (k === "ArrowRight") { e.preventDefault(); held.right = true; pressMove(1); }
-    else if (k === "ArrowDown") { e.preventDefault(); held.soft = { last: 0 }; tryMove(0, 1); }
-    else if (k === "ArrowUp" || k === "x" || k === "X") { e.preventDefault(); tryRotate(1); }
-    else if (k === "z" || k === "Z" || k === "Control") { e.preventDefault(); tryRotate(-1); }
-    else if (k === "a" || k === "A") { e.preventDefault(); tryRotate180(); } // 単発180°(PPT2準拠)
-    else if (k === " ") { e.preventDefault(); hardDrop(); }
-    else if (k === "Shift" || k === "c" || k === "C") { e.preventDefault(); holdPiece(); }
-    else if (k === "Backspace" || k === "u" || k === "U") { e.preventDefault(); undo(); }
-    else if (k === "r" || k === "R") { e.preventDefault(); doReset(); }
+    const act = actionForKey(e.key);
+    // 横/ソフトはDAS/ARRで処理。その他は1押下=1回にするためブラウザのキーリピートは無視。
+    if (e.repeat) { if (act === "left" || act === "right" || act === "soft") e.preventDefault(); return; }
+    if (!act) return;
+    e.preventDefault();
+    doKeyAction(act);
   });
   window.addEventListener("keyup", function (e) {
-    const k = e.key;
+    const act = actionForKey(e.key);
     // 離した方向だけ解除。反対が押されたままなら、そちらの連続移動を再開（切替えで止まらない）。
-    if (k === "ArrowLeft") { held.left = false; if (held.right) resumeMove(1); else held.move = null; }
-    else if (k === "ArrowRight") { held.right = false; if (held.left) resumeMove(-1); else held.move = null; }
-    else if (k === "ArrowDown") { held.soft = null; }
+    if (act === "left") { held.left = false; if (held.right) resumeMove(1); else held.move = null; }
+    else if (act === "right") { held.right = false; if (held.left) resumeMove(-1); else held.move = null; }
+    else if (act === "soft") { held.soft = null; }
   });
 
   function doReset() {
@@ -1006,6 +1100,11 @@
       padToggle.addEventListener("change", function () { pad.enabled = padToggle.checked; updateGamepadStatus(); });
     }
     updateGamepadStatus();
+
+    // 操作設定（キー/パッドのリマップ）
+    buildControlsPanel();
+    const cr = $("btn-controls-reset");
+    if (cr) cr.addEventListener("click", resetControls);
 
     // 検証パネル
     $("btn-verify").addEventListener("click", function () {

@@ -106,12 +106,17 @@
         <div class="panel-title">ゲームパッド (Switch Joy-Con)</div>
         <label class="toggle"><input type="checkbox" id="set-gamepad" checked> ゲームパッドを使う</label>
         <p id="pad-status" class="note">未接続（ページを選択し、Joy-Conのボタンを1回押すと有効化）</p>
-        <p class="note">
-          Joy-Con 左右セット（標準持ち）の割り当て：<br />
-          移動 = 左スティック / 十字キー ←→　／　ソフトドロップ = ↓　／　ハードドロップ = ↑<br />
-          右回転 = A　／　左回転 = B　／　180° = X　／　ホールド = Y・L・R<br />
-          一手戻す = −・ZL　／　リセット = ＋・ZR
-        </p>
+        <p class="note">Joy-Con 左右セットは標準持ちで自動認識。割り当ては下の「操作設定」で変更できます。</p>
+      </div>
+
+      <div class="panel">
+        <details class="ctrl-sec">
+          <summary class="panel-title" style="cursor:pointer">操作設定（キー / パッド）</summary>
+          <p class="note">各行の「キー」「パッド」ボタンを押し、続けて割り当てたいキー/ボタンを押すと変更できます（キーはEscで取消）。</p>
+          <div class="ctrl-map-row ctrl-map-head"><span class="cm-label">操作</span><span class="cm-btn">キー</span><span class="cm-btn">パッド</span></div>
+          <div id="controls-list"></div>
+          <button id="btn-controls-reset" class="ctrl-btn small">デフォルトに戻す</button>
+        </details>
       </div>
 
       <div class="panel">
