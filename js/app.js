@@ -502,6 +502,69 @@
     }
     return dfs(bag.slice(), null, occ0, 0, 0);
   }
+  // --- 2巡目パターン(理想P1-P5/妥協)の各判定＋動的テンプレ生成 ---
+  let dynTemplate = null; // 通し練習で選ばれたパターンの一時テンプレ
+  // バッグでこのパターン(固定スロット)を組めるか：到達可能な任意順・ホールド1・T予約(最後)
+  function canBuildPattern(bag, pat) {
+    const pc = {}; pat.steps.forEach(function (s) { pc[s.p] = s.c; });
+    const occ = []; for (let r = 0; r < ROWS; r++) occ.push(new Array(COLS).fill(false));
+    pat.base.forEach(function (c) { occ[c[0]][c[1]] = true; });
+    const memo = new Set(); let nodes = 0;
+    function canRest(cells) {
+      for (let i = 0; i < 4; i++) if (occ[cells[i][0]][cells[i][1]]) return false;
+      for (let i = 0; i < 4; i++) { const r = cells[i][0], c = cells[i][1], nr = r + 1; if (nr >= ROWS) return true; if (occ[nr][c] && !cells.some(function (k) { return k[0] === nr && k[1] === c; })) return true; }
+      return false;
+    }
+    function dfs(q, hold, placed) {
+      if (placed.size === 6) return true;       // 非T6個を置けたら成功（Tは最後のTSTで予約）
+      if (nodes++ > 80000) return false;
+      const key = q.join("") + "|" + (hold || "-") + "|" + Array.from(placed).sort().join("");
+      if (memo.has(key)) return false; memo.add(key);
+      if (hold && hold !== "T" && !placed.has(hold) && pc[hold] && canRest(pc[hold])) {
+        const cells = pc[hold]; for (let k = 0; k < 4; k++) occ[cells[k][0]][cells[k][1]] = true; placed.add(hold);
+        if (dfs(q, null, placed)) return true;
+        placed.delete(hold); for (let k = 0; k < 4; k++) occ[cells[k][0]][cells[k][1]] = false;
+      }
+      if (q.length) {
+        const cur = q[0], rest = q.slice(1);
+        if (cur === "T") {
+          if (hold === null) { if (dfs(rest, "T", placed)) return true; }
+          else if (hold !== "T") { if (dfs([hold].concat(rest), "T", placed)) return true; }
+        } else {
+          if (!placed.has(cur) && pc[cur] && canRest(pc[cur])) {
+            const cells = pc[cur]; for (let k = 0; k < 4; k++) occ[cells[k][0]][cells[k][1]] = true; placed.add(cur);
+            if (dfs(rest, hold, placed)) return true;
+            placed.delete(cur); for (let k = 0; k < 4; k++) occ[cells[k][0]][cells[k][1]] = false;
+          }
+          if (hold === null) { if (dfs(rest, cur, placed)) return true; }
+          else if (hold !== "T" && hold !== cur) { if (dfs([hold].concat(rest), cur, placed)) return true; }
+        }
+      }
+      return false;
+    }
+    try { return dfs(bag.slice(), null, new Set()); } catch (e) { return false; }
+  }
+  // パターン → 動的テンプレ(field占有・prefill土台・設置順guide)
+  function patternToTemplate(pat, route) {
+    const field = E.emptyGrid(), prefill = E.emptyGrid();
+    pat.base.forEach(function (c) { field[c[0]][c[1]] = SETUP_GRAY; prefill[c[0]][c[1]] = SETUP_GRAY; });
+    const guide = pat.steps.map(function (s) {
+      s.c.forEach(function (c) { field[c[0]][c[1]] = (E.PIECES[s.p] || {}).color || SETUP_GRAY; });
+      return { piece: s.p, cells: s.c.map(function (c) { return [c[0], c[1]]; }), kind: s.spin ? "spin" : "drop" };
+    });
+    const jp = (route === "ideal") ? "理想形" : "妥協形";
+    return { id: "hc_" + route + "_" + pat.key, name: "2巡目 " + jp + pat.key, group: "はちみつ砲", type: "field", field: field, prefill: prefill, setup: true, guide: guide, desc: "" };
+  }
+  // バッグで組める理想P（無ければ妥協）を選ぶ。複数組めればランダム。
+  function pickChainPattern(bag) {
+    const P = window.TT_HC_PATTERNS; if (!P) return null;
+    const okI = (P.ideal || []).filter(function (pat) { return canBuildPattern(bag, pat); });
+    if (okI.length) return { route: "ideal", pat: okI[Math.floor(Math.random() * okI.length)], n: okI.length };
+    const okC = (P.compromise || []).filter(function (pat) { return canBuildPattern(bag, pat); });
+    if (okC.length) return { route: "compromise", pat: okC[Math.floor(Math.random() * okC.length)], n: okC.length };
+    if (P.compromise && P.compromise.length) return { route: "compromise", pat: P.compromise[0], n: 0, hard: true };
+    return null;
+  }
   function honeycupChainStart() {
     G.chain = { on: true, stage: 1, route: null };
     startChainStage();
@@ -516,6 +579,22 @@
       t = setupByName(left ? "1巡目 左" : "1巡目 右");
       head = "①1巡目【" + (left ? "左(ホールド)型" : "右(反転)型") + "】" + (left ? "T" : "I") + "が先。";
     } else if (ch.stage === 2) {
+      // 実NEXTで理想P1-P5のどれが組めるか判定→組めるものからランダム選択。無ければ妥協形。
+      const pick = pickChainPattern(bag);
+      if (pick) {
+        ch.route = (pick.route === "ideal") ? "ideal" : "compromise";
+        dynTemplate = patternToTemplate(pick.pat, pick.route);
+        const more = (pick.n > 1) ? "（組める理想形" + pick.n + "種からランダム選択）" : "";
+        const head2 = (pick.route === "ideal")
+          ? ("②2巡目【理想形 " + pick.pat.key + "】このNEXTで組めます！" + more)
+          : (pick.hard ? "②2巡目【妥協形】理想形が組めない難しい並び→妥協形で対応（工夫して挑戦）。"
+                       : "②2巡目【妥協形 " + pick.pat.key + "】理想形が組めない→妥協形へ自動切替。");
+        pendingChainBag = bag.slice(); ch.bag = bag.slice();
+        startTemplate("__hc_dyn__"); // dynTemplate を起動
+        flashHint("【通し練習 2/3】" + head2 + "　" + setupHintText(G.template), false);
+        return;
+      }
+      // パターン未読込時のフォールバック（静的）
       let ideal = true; try { ideal = canBuildIdeal(bag); } catch (e) { ideal = true; }
       ch.route = ideal ? "ideal" : "compromise";
       t = ideal ? setupByName("基本形② 2巡目TST") : setupByName("妥協形 2巡目A");
@@ -538,6 +617,7 @@
 
   // id から実体テンプレを取得（収録セットアップ / 手順型built-in / カタログ+保存 / カスタム）
   function findTemplate(id) {
+    if (id === "__hc_dyn__" && dynTemplate) return dynTemplate; // 通し練習の動的パターン
     const su = setupById(id);
     if (su) return su; // 収録セットアップ（はちみつ砲ほか・完成形field型）
     const s = TPL.byId(id);
