@@ -24,7 +24,7 @@
 
   const $ = function (id) { return document.getElementById(id); };
   const statLines = $("stat-lines"), statPieces = $("stat-pieces"), statPc = $("stat-pc");
-  const statTspin = $("stat-tspin");
+  const statTspin = $("stat-tspin"), statCycle = $("stat-cycle");
   const hintBox = $("hint-text"), modeLabel = $("mode-label");
 
   // ---- 設定 ----
@@ -49,7 +49,7 @@
     queue: [],             // 表示用ネクスト（letterの配列）
     history: [],           // Undo用スナップショット
     // 集計
-    lines: 0, pieces: 0, pcs: 0, tspins: 0,
+    lines: 0, pieces: 0, pcs: 0, tspins: 0, cycles: 0,
     over: false,
     // 直前操作の追跡（T-spin判定用）
     lastRotation: false, lastKick: 0,
@@ -231,7 +231,7 @@
       active: G.active ? Object.assign({}, G.active) : null,
       hold: G.hold, canHold: G.canHold,
       bag: G.bag.slice(), queue: G.queue.slice(),
-      lines: G.lines, pieces: G.pieces, pcs: G.pcs, tspins: G.tspins,
+      lines: G.lines, pieces: G.pieces, pcs: G.pcs, tspins: G.tspins, cycles: G.cycles,
       lastRotation: G.lastRotation, lastKick: G.lastKick, lastClearLabel: G.lastClearLabel,
       stepIndex: G.stepIndex, mistake: G.mistake, over: G.over,
     };
@@ -245,7 +245,7 @@
     const s = G.history.pop();
     G.grid = s.grid; G.active = s.active; G.hold = s.hold; G.canHold = s.canHold;
     G.bag = s.bag; G.queue = s.queue;
-    G.lines = s.lines; G.pieces = s.pieces; G.pcs = s.pcs; G.tspins = s.tspins;
+    G.lines = s.lines; G.pieces = s.pieces; G.pcs = s.pcs; G.tspins = s.tspins; G.cycles = s.cycles;
     G.lastRotation = s.lastRotation; G.lastKick = s.lastKick; G.lastClearLabel = s.lastClearLabel;
     G.stepIndex = s.stepIndex; G.mistake = s.mistake; G.over = s.over;
     if (G.mode === "template") {
@@ -491,7 +491,7 @@
       G.lastClearLabel = clearLabel(spin, 0);
       const lead = G.lastClearLabel ? G.lastClearLabel + "！" : "";
       G.active = null;
-      if (fieldMatches()) { onFieldComplete(lead); return; }
+      if (fieldMatches()) { onFieldComplete(spin); return; }
       if (lead) flashHint(lead, false);
       else if (fieldOverflow()) flashHint("目標の形からはみ出しました。↩Undoでやり直すか、リセットを。", true);
       spawnFromQueue();
@@ -544,25 +544,50 @@
     }
   }
 
-  function onTemplateComplete(lead) {
-    G.active = null;
-    flashHint((lead ? lead + " " : "") + "テンプレ完了！" + (settings.autoRepeat ? " 反復します…" : " リセットで再挑戦できます。"), false);
-    render();
-    if (settings.autoRepeat) {
-      setTimeout(function () { resetTemplate(); }, 900);
-    }
+  function boardEmpty() {
+    return G.grid.every(function (row) { return row.every(function (c) { return !c; }); });
   }
-  function onFieldComplete(lead) {
-    flashHint((lead ? lead + " " : "") + "完成！🎉 目標の形ができました。" + (settings.autoRepeat ? " 反復します…" : " リセットで再挑戦。"), false);
+  // 1巡完了 → 反復ONなら次の巡へ継続。PCで盤面が空ならそのまま続行、残りがあれば盤面をクリアして仕切り直し。
+  function advanceCycle(lead) {
+    G.active = null; G.targetCells = null;
+    if (!settings.autoRepeat) {
+      flashHint((lead ? lead + " " : "") + "完了！ リセット(R)でもう一度。（反復ONで自動継続）", false);
+      render();
+      return;
+    }
+    G.cycles = (G.cycles || 0) + 1;
+    if (!boardEmpty()) G.grid = E.emptyGrid(); // PCでない完了は次の反復のため盤面をクリア
+    G.stepIndex = 0; G.mistake = false; G.lastRotation = false; G.canHold = true; G.hold = null;
+    flashHint((lead ? lead + " " : "") + "▶ " + G.cycles + "巡目！", false);
+    if (tplType() === "fsteps") { setFStep(0); return; }
+    spawnFromQueue();
     render();
-    if (settings.autoRepeat) setTimeout(function () { resetTemplate(); }, 900);
+  }
+  function onTemplateComplete(lead) {
+    // steps / fsteps: ライン消去は afterLockCommon / fsteps側で実施済。ここで次の巡へ。
+    advanceCycle(lead || "テンプレ完了！🎉");
+  }
+  function onFieldComplete(spin) {
+    // 完成形を組めた → ここで実際にライン消去（基本機能を練習でも反映。PCなら盤面が空に）。
+    const cl = E.clearLines(G.grid);
+    G.grid = cl.grid;
+    let lead;
+    if (cl.cleared > 0) {
+      G.lines += cl.cleared;
+      lead = clearLabel(spin, cl.cleared);
+      if (boardEmpty()) { G.pcs++; lead = (lead ? lead + " " : "") + "パーフェクトクリア！🎉"; }
+    } else {
+      lead = clearLabel(spin, 0);
+    }
+    lead = (lead ? lead + " " : "") + "完成！🎉";
+    advanceCycle(lead);
   }
 
   // ===== モード初期化 =====
   function resetCommon() {
     G.grid = E.emptyGrid(); G.active = null; G.hold = null; G.canHold = true;
     G.bag = []; G.queue = []; G.history = [];
-    G.lines = 0; G.pieces = 0; G.pcs = 0; G.tspins = 0; G.over = false;
+    G.lines = 0; G.pieces = 0; G.pcs = 0; G.tspins = 0; G.cycles = 0; G.over = false;
     G.lastRotation = false; G.lastKick = 0; G.lastClearLabel = ""; G._pendingSpin = "none";
     G.stepIndex = 0; G.mistake = false; G.targetCells = null;
     G.buildSlot = null;
@@ -668,6 +693,7 @@
     statPieces.textContent = G.pieces;
     statPc.textContent = G.pcs;
     if (statTspin) statTspin.textContent = G.tspins;
+    if (statCycle) statCycle.textContent = G.cycles;
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";
@@ -749,21 +775,20 @@
   }
 
   function previewQueue() {
+    // 現在のミノは active として表示済み。ネクストは「次の手」以降を出す（stepIndex+1始まり）。
     if (G.mode === "template" && tplType() === "steps") {
-      const out = [];
-      for (let i = G.stepIndex; i < Math.min(G.stepIndex + 5, G.template.steps.length); i++) {
-        out.push(G.template.steps[i].piece);
-      }
+      const st = G.template.steps, out = [];
+      for (let i = G.stepIndex + 1; i < Math.min(G.stepIndex + 6, st.length); i++) out.push(st[i].piece);
       return out;
     }
     if (G.mode === "template" && tplType() === "fsteps") {
       const fs = G.template.fsteps, out = [];
-      for (let i = G.stepIndex; i < Math.min(G.stepIndex + 5, fs.length); i++) out.push(fs[i].piece);
+      for (let i = G.stepIndex + 1; i < Math.min(G.stepIndex + 6, fs.length); i++) out.push(fs[i].piece);
       return out;
     }
     if (G.mode === "template" && G.template && G.template.queue) {
       const q = G.template.queue, out = [];
-      for (let i = G.stepIndex; i < Math.min(G.stepIndex + 5, q.length); i++) out.push(q[i]);
+      for (let i = G.stepIndex + 1; i < Math.min(G.stepIndex + 6, q.length); i++) out.push(q[i]);
       return out;
     }
     return G.queue.slice(0, 5);
