@@ -36,7 +36,57 @@
     autoRepeat: true,  // テンプレ完了時に自動で最初から
     das: 130,          // ms
     arr: 25,           // ms
+    sound: true,       // 効果音(SE)
   };
+
+  // ===== 効果音(SE)：Web Audioで合成（音源ファイル不要） =====
+  const SND = { ctx: null, master: null };
+  function sndInit() {
+    if (SND.ctx) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      SND.ctx = new AC();
+      SND.master = SND.ctx.createGain();
+      SND.master.gain.value = 0.16;
+      SND.master.connect(SND.ctx.destination);
+    } catch (e) {}
+  }
+  function tone(freq, dur, type, gain, slideTo, delay) {
+    if (!SND.ctx) return;
+    const t0 = SND.ctx.currentTime + (delay || 0);
+    const o = SND.ctx.createOscillator(), g = SND.ctx.createGain();
+    o.type = type || "square";
+    o.frequency.setValueAtTime(freq, t0);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(40, slideTo), t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain || 0.4, t0 + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(SND.master);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  function sfx(kind) {
+    if (!settings.sound || !SND.ctx) return;
+    if (SND.ctx.state === "suspended") { try { SND.ctx.resume(); } catch (e) {} }
+    switch (kind) {
+      case "move": tone(420, 0.03, "square", 0.22); break;
+      case "rotate": tone(680, 0.045, "square", 0.28); break;
+      case "drop": tone(300, 0.09, "sawtooth", 0.5, 90); break;
+      case "hold": tone(540, 0.05, "triangle", 0.32); break;
+      case "clear": tone(520, 0.12, "square", 0.42, 880); break;
+      case "tetris": tone(440, 0.18, "square", 0.5, 990); tone(660, 0.18, "square", 0.32, 0, 0.02); break;
+      case "tspin": tone(720, 0.16, "triangle", 0.5, 1200); break;
+      case "pc": [523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0.14, "triangle", 0.42, 0, i * 0.09); }); break;
+      case "perfect": tone(880, 0.1, "triangle", 0.45); tone(1320, 0.12, "triangle", 0.38, 0, 0.08); break;
+      case "wrong": tone(170, 0.16, "sawtooth", 0.38, 110); break;
+      case "over": [400, 320, 250, 180].forEach(function (f, i) { tone(f, 0.14, "sawtooth", 0.38, 0, i * 0.08); }); break;
+    }
+  }
+  function clearSfx(spin, cleared, empty) {
+    if (empty && cleared > 0) { sfx("pc"); return; }
+    if (spin && spin !== "none") { sfx("tspin"); return; }
+    if (cleared >= 4) sfx("tetris"); else if (cleared > 0) sfx("clear");
+  }
 
   // ---- ゲーム状態 ----
   const G = {
@@ -354,7 +404,7 @@
     const st = E.spawnState(piece);
     if (E.collide(G.grid, st.piece, st.rot, st.px, st.py)) {
       // 出現位置で衝突 → トップアウト
-      G.over = true; G.active = null; render(); return;
+      G.over = true; G.active = null; sfx("over"); render(); return;
     }
     G.active = st;
     G.canHold = true;
@@ -382,6 +432,7 @@
       G.active.rot = res.rot; G.active.px = res.px; G.active.py = res.py;
       G.lastRotation = true; G.lastKick = res.kick;
       if (G.mode === "finesse") G.finesseInputs++; // 回転1回=1操作
+      sfx("rotate");
       render();
     }
   }
@@ -392,6 +443,7 @@
       G.active.rot = res.rot; G.active.px = res.px; G.active.py = res.py;
       G.lastRotation = true; G.lastKick = res.kick;
       if (G.mode === "finesse") G.finesseInputs++; // 回転1回=1操作
+      sfx("rotate");
       render();
     }
   }
@@ -403,6 +455,7 @@
     // 落下距離で消すと、浮いた状態から決めるTST/T-Spinトリプル系が検出されなくなる
     // （T-Spinは3-cornerルールで最終位置にて判定する）。
     a.py = E.dropY(G.grid, a.piece, a.rot, a.px, a.py);
+    sfx("drop");
     lockPiece();
   }
   function holdPiece() {
@@ -422,6 +475,7 @@
       else G.active = st;
     }
     G.canHold = false;       // 次に固定するまでホールド不可
+    sfx("hold");
     render();
   }
 
@@ -477,11 +531,13 @@
           G.grid = G.template.finalField.map(function (row) { return row.slice(); });
         }
         const empty = G.grid.every(function (row) { return row.every(function (c) { return !c; }); });
+        clearSfx(spin, cl.cleared, empty);
         if (empty && cl.cleared > 0) { G.pcs++; msg = (msg ? msg + " " : "") + "パーフェクトクリア！🎉"; }
         G.active = null; G.targetCells = null;
         onTemplateComplete(msg);
         return;
       }
+      clearSfx(spin, cl.cleared, false);
       if (msg) flashHint(msg, false);
       setFStep(G.stepIndex + 1);
       return;
@@ -536,6 +592,7 @@
       const empty = G.grid.every(function (row) { return row.every(function (c) { return !c; }); });
       if (empty) { G.pcs++; msg = (msg ? msg + " " : "") + "パーフェクトクリア！🎉"; }
     }
+    clearSfx(spin, cl.cleared, boardEmpty());
     G.active = null;
     // 次へ
     if (G.mode === "template") {
@@ -575,6 +632,7 @@
     // 完成形を組めた → ここで実際にライン消去（基本機能を練習でも反映。PCなら盤面が空に）。
     const cl = E.clearLines(G.grid);
     G.grid = cl.grid;
+    clearSfx(spin, cl.cleared, boardEmpty());
     let lead;
     if (cl.cleared > 0) {
       G.lines += cl.cleared;
@@ -711,16 +769,26 @@
     while (par[k]) { path.unshift(par[k].label); k = par[k].pk; }
     return { count: path.length, path: path };
   }
+  const FIN_LABEL_ACT = { "左": "left", "右": "right", "右回転": "cw", "左回転": "ccw", "180°回転": "rot180" };
+  function keyForAction(act) {
+    const ks = KEYMAP[act] || [];
+    if (!ks.length) return "";
+    const k = ks[0];
+    return (KEY_DISP && KEY_DISP[k]) || (k.length === 1 ? k.toUpperCase() : k);
+  }
   function describeFinessePath(path) {
-    if (!path || !path.length) return "そのままハードドロップ";
+    const hk = keyForAction("hard");
+    const tail = "ハードドロップ" + (hk ? "(" + hk + ")" : "");
+    if (!path || !path.length) return "そのまま" + tail;
     const out = []; let i = 0;
     while (i < path.length) {
       let j = i; while (j < path.length && path[j] === path[i]) j++;
       const n = j - i;
-      out.push(n > 1 ? path[i] + "×" + n : path[i]);
+      const key = FIN_LABEL_ACT[path[i]] ? keyForAction(FIN_LABEL_ACT[path[i]]) : "";
+      out.push((n > 1 ? path[i] + "×" + n : path[i]) + (key ? "(" + key + ")" : ""));
       i = j;
     }
-    return out.join(" → ") + " → ハードドロップ";
+    return out.join(" → ") + " → " + tail;
   }
   function spawnFinessePiece() {
     clearHeld(); // 押しっぱなしのキーが次の問題に漏れて勝手に動くのを防ぐ
@@ -768,12 +836,14 @@
     if (placedRight && used <= opt) {
       // 完璧 → 次の問題へ
       G.finessePerfect++; G.finessePieces++; G.pieces++;
+      sfx("perfect");
       updateFinesseLabel();
       flashHint("✓ 完璧！ " + used + " 操作（最適 " + opt + "）。次の問題へ ▶", false);
       newFinesseTarget();
       return;
     }
     // 不正解（位置違い or 操作過多）→ 正解の手順を提示し、同じ問題で再挑戦
+    sfx("wrong");
     updateFinesseLabel();
     const why = placedRight ? ("操作が多い：あなた " + used + " / 最適 " + opt) : "目標と違う位置";
     flashHint("✗ " + why + "。正解: " + describeFinessePath(res.path) + "（最適 " + opt + " 操作）。同じ問題でもう一度！", true);
@@ -894,12 +964,9 @@
   }
 
   function previewQueue() {
+    // 手順型ドリル(steps)はネクストを表示しない（要望により削除）。
+    if (G.mode === "template" && tplType() === "steps") return [];
     // 現在のミノは active として表示済み。ネクストは「次の手」以降を出す（stepIndex+1始まり）。
-    if (G.mode === "template" && tplType() === "steps") {
-      const st = G.template.steps, out = [];
-      for (let i = G.stepIndex + 1; i < Math.min(G.stepIndex + 6, st.length); i++) out.push(st[i].piece);
-      return out;
-    }
     if (G.mode === "template" && tplType() === "fsteps") {
       const fs = G.template.fsteps, out = [];
       for (let i = G.stepIndex + 1; i < Math.min(G.stepIndex + 6, fs.length); i++) out.push(fs[i].piece);
@@ -940,7 +1007,7 @@
   // ===== 入力(DAS/ARR付き) =====
   const held = {}; // {move:{dir,start,last,fired}, soft, left:bool, right:bool}
   function pressMove(dir) {
-    tryMove(dir, 0);
+    if (tryMove(dir, 0)) sfx("move");
     held.move = { dir: dir, start: performance.now(), last: performance.now(), fired: false };
   }
   // 反対の横キーへ切替え時、即時移動せずDASからやり直して連続移動を継続させる
@@ -1083,7 +1150,7 @@
     if (lf && !rt) dir = -1; else if (rt && !lf) dir = 1;
     if (dir !== pad.moveDir) {
       pad.moveDir = dir;
-      if (dir !== 0) { tryMove(dir, 0); pad.moveStart = now; pad.moveLast = now; pad.moveFired = false; }
+      if (dir !== 0) { if (tryMove(dir, 0)) sfx("move"); pad.moveStart = now; pad.moveLast = now; pad.moveFired = false; }
     } else if (dir !== 0) {
       const el = now - pad.moveStart;
       if (!pad.moveFired && el >= settings.das) { pad.moveFired = true; tryMove(dir, 0); pad.moveLast = now; }
@@ -1222,6 +1289,12 @@
     bindToggle("set-hint", "showHint");
     bindToggle("set-gravity", "gravity");
     bindToggle("set-repeat", "autoRepeat");
+    bindToggle("set-sound", "sound");
+    // 効果音: 最初のユーザー操作で AudioContext を起動（自動再生ポリシー対策）
+    sndInit();
+    const resumeAudio = function () { sndInit(); if (SND.ctx && SND.ctx.state === "suspended") { try { SND.ctx.resume(); } catch (e) {} } };
+    window.addEventListener("pointerdown", resumeAudio, { once: true });
+    window.addEventListener("keydown", resumeAudio, { once: true });
 
     // ゲームパッド(Joy-Con)
     const padToggle = $("set-gamepad");
