@@ -160,8 +160,80 @@
     if (v.field !== undefined) return isGrid(v.field);
     return false; // field も fsteps も無いエントリは受け付けない
   }
-  // id から実体テンプレを取得（手順型built-in / カタログ+保存 / カスタム）
+  // ===== 収録セットアップ（はちみつ砲ほか：fumen各ページ→完成形field群に展開） =====
+  // 灰(#7a8290)=前巡からの確定スタック。初期盤面としてプリフィルし、色付き(新規)ミノだけを
+  // 置いてその形に到達する練習にする（ガベージ行の穴も再現不能にならず、各巡の置き方練習になる）。
+  const SETUP_GRAY = "#7a8290";
+  const FUMEN_TYPE_LETTER = { 1: "I", 2: "L", 3: "O", 4: "Z", 5: "T", 6: "J", 7: "S" };
+  function setupPageBoard(page) {
+    const b = window.TT_FUMEN.ffToBoard(page.field);
+    // ロック操作付きページなら、その置きミノも完成形に含める（図解系は field のみで完結）
+    if (page.lock && page.op && FUMEN_TYPE_LETTER[page.op.type]) {
+      const col = (E.PIECES[FUMEN_TYPE_LETTER[page.op.type]] || {}).color || SETUP_GRAY;
+      window.TT_FUMEN.opCells(page.op).forEach(function (rc) { if (b[rc[0]]) b[rc[0]][rc[1]] = col; });
+    }
+    return b;
+  }
+  function expandSetups() {
+    const out = [];
+    if (!window.TT_FUMEN || !window.TT_SETUPS) return out;
+    window.TT_SETUPS.forEach(function (su) {
+      let n = 0;
+      (su.sections || []).forEach(function (sec) {
+        let pages;
+        try { pages = window.TT_FUMEN.decodePages(sec.fumen); } catch (e) { return; }
+        for (let i = 0; i < pages.length; i++) {
+          const board = setupPageBoard(pages[i]);
+          let colored = 0, gray = 0, lowest = -1, floatCols = 0;
+          const prefill = E.emptyGrid();
+          for (let c = 0; c < COLS; c++) {
+            let lo = -1;
+            for (let r = ROWS - 1; r >= 0; r--) { if (board[r][c]) { lo = r; break; } }
+            if (lo >= 0 && lo < ROWS - 1) floatCols++; // この列の最下セルが床に接していない＝浮き列
+          }
+          for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+            const v = board[r][c];
+            if (!v) continue;
+            if (r > lowest) lowest = r;
+            if (v === SETUP_GRAY) { gray++; prefill[r][c] = v; }
+            else colored++;
+          }
+          if (colored === 0) continue; // 全て灰＝置くミノが無い参照図。練習対象外
+          // 床から浮いた差分フレーム図（オーバーレイ）は単独で組めないので除外。
+          // 床接地(最下段に占有)かつ浮き列が1以下のものだけを「組める完成形」として採用。
+          if (!(lowest === ROWS - 1 && floatCols <= 1)) continue;
+          const label = (sec.labels && sec.labels[i]) || (su.name + " " + (n + 1));
+          out.push({
+            id: "su_" + su.key + "_" + n,
+            name: label, group: su.name, type: "field",
+            field: board, prefill: (gray ? prefill : null), setup: true,
+            desc: su.desc || "", src: su.src || "",
+          });
+          n++;
+        }
+      });
+    });
+    return out;
+  }
+  const SETUP_TEMPLATES = expandSetups();
+  const SETUP_GROUPS = (window.TT_SETUPS || []).map(function (su) { return su.name; });
+  function setupById(id) {
+    for (let i = 0; i < SETUP_TEMPLATES.length; i++) if (SETUP_TEMPLATES[i].id === id) return SETUP_TEMPLATES[i];
+    return null;
+  }
+  // 現在のテンプレに前巡スタック(prefill)があれば初期盤面へ配置（resetCommonの後に呼ぶ）
+  function applyTemplatePrefill() {
+    const t = G.template;
+    if (!t || !t.prefill) return;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      if (t.prefill[r] && t.prefill[r][c]) G.grid[r][c] = t.prefill[r][c];
+    }
+  }
+
+  // id から実体テンプレを取得（収録セットアップ / 手順型built-in / カタログ+保存 / カスタム）
   function findTemplate(id) {
+    const su = setupById(id);
+    if (su) return su; // 収録セットアップ（はちみつ砲ほか・完成形field型）
     const s = TPL.byId(id);
     if (s) return s; // col手順型 built-in（type未指定→steps扱い）
     const c = CAT.byId(id);
@@ -617,7 +689,9 @@
       return;
     }
     G.cycles = (G.cycles || 0) + 1;
-    if (!boardEmpty()) G.grid = E.emptyGrid(); // PCでない完了は次の反復のため盤面をクリア
+    // 収録セットアップ(前巡スタックあり)は毎巡その土台から再開。それ以外はPC以外なら盤面クリア。
+    if (G.template && G.template.prefill) { G.grid = E.emptyGrid(); applyTemplatePrefill(); }
+    else if (!boardEmpty()) G.grid = E.emptyGrid(); // PCでない完了は次の反復のため盤面をクリア
     G.stepIndex = 0; G.mistake = false; G.lastRotation = false; G.canHold = true; G.hold = null;
     flashHint((lead ? lead + " " : "") + "▶ " + G.cycles + "巡目！", false);
     if (tplType() === "fsteps") { setFStep(0); return; }
@@ -676,6 +750,7 @@
     G.buildSlot = null;
     if ((t.type === "field") && !t.field) { enterBuildMode(t); return; } // 未設定 → 盤面エディタ
     G.mode = "template"; G.template = t; resetCommon();
+    applyTemplatePrefill();
     if (t.type === "fsteps") {
       modeLabel.textContent = "手順: " + t.name;
       flashHint(t.desc + "　黄色の目標位置に1手ずつ置こう（スピン/ tuck もOK・盤面はテト譜準拠）。", false);
@@ -685,7 +760,13 @@
     spawnFromQueue();
     modeLabel.textContent = "テンプレ: " + t.name;
     const srcNote = t.src ? "（出典: " + t.src + "）" : "";
-    flashHint(t.desc + ((t.type === "field") ? "　うすい色の目標形を組み上げよう（スピン・ホールドOK）。" + srcNote : ""), false);
+    let fieldNote = "";
+    if (t.type === "field") {
+      fieldNote = (t.prefill
+        ? "　灰は前巡の土台（配置済）。色付きミノを置いてこの形にしよう（スピン・ホールドOK）。"
+        : "　うすい色の目標形を組み上げよう（スピン・ホールドOK）。") + srcNote;
+    }
+    flashHint(t.desc + fieldNote, false);
     render();
   }
   // 未登録テンプレ枠を埋めるための盤面エディタ（フリー操作で組んで保存）
@@ -707,6 +788,7 @@
   function resetTemplate() {
     if (G.mode !== "template" || !G.template) return;
     resetCommon();
+    applyTemplatePrefill();
     if (tplType() === "fsteps") { setFStep(0); return; }
     if ((tplType() === "field") && !G.template.field) return;
     spawnFromQueue();
@@ -1383,6 +1465,14 @@
       }
       return wrap;
     }
+
+    // 0) 収録セットアップ（はちみつ砲ほか・テト譜由来の完成形群）を最上部に
+    SETUP_GROUPS.forEach(function (gname) {
+      const entries = SETUP_TEMPLATES.filter(function (t) { return t.group === gname; });
+      section("★ " + gname, entries, function (t) {
+        return btn(t.name, "✓ 練習可", "ok", function () { startTemplate(t.id); });
+      });
+    });
 
     // 1) 手順型（検証済みドリル）
     section("手順型ドリル（ヒント付き）", TPL.list, function (t) {
