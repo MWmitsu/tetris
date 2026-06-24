@@ -655,6 +655,8 @@
     G.buildSlot = null;
     G.finesseInputs = 0; G.finessePieces = 0; G.finessePerfect = 0; G.finesseAttempts = 0; G._finPiece = null;
     clearHeld();
+    // リマップ取得モードが残っていると入力が吸われ続けるので解除
+    captureKeyAction = null; capturePadAction = null;
   }
   function startFree() {
     G.mode = "free"; resetCommon();
@@ -1020,26 +1022,28 @@
     if (pad) pad.moveDir = 0;
   }
   function inputLoop(now) {
-    // 横移動のDAS/ARR（フィネス中は無効＝1タップ1マスの精密入力で行き過ぎを防ぐ）
-    if (held.move && G.mode !== "finesse") {
-      const h = held.move;
-      const el = now - h.start;
-      if (!h.fired && el >= settings.das) { h.fired = true; tryMove(h.dir, 0); h.last = now; }
-      else if (h.fired && now - h.last >= settings.arr) { tryMove(h.dir, 0); h.last = now; }
-    }
-    // ソフトドロップ連続
-    if (held.soft && now - (held.soft.last || 0) >= Math.max(15, settings.arr)) {
-      tryMove(0, 1); held.soft.last = now;
-    }
-    // ゲームパッド(Joy-Con等)
-    pollGamepad(now);
-    // gravity（自由/掘りのみ。テンプレ・フィネスは自動落下しない）
-    if (settings.gravity && G.active && !G.over && (G.mode === "free" || G.mode === "dig")) {
-      if (now - G.lastGravity >= settings.gravityMs) {
-        if (!tryMove(0, 1)) { hardDropNoExtend(); }
-        G.lastGravity = now;
+    try {
+      // 横移動のDAS/ARR（ぷよテト2同様、長押しでそのまま壁方向へ連続移動。フィネスでも有効）
+      if (held.move) {
+        const h = held.move;
+        const el = now - h.start;
+        if (!h.fired && el >= settings.das) { h.fired = true; tryMove(h.dir, 0); h.last = now; }
+        else if (h.fired && now - h.last >= settings.arr) { tryMove(h.dir, 0); h.last = now; }
       }
-    }
+      // ソフトドロップ連続
+      if (held.soft && now - (held.soft.last || 0) >= Math.max(15, settings.arr)) {
+        tryMove(0, 1); held.soft.last = now;
+      }
+      // ゲームパッド(Joy-Con等)
+      pollGamepad(now);
+      // gravity（自由/掘りのみ。テンプレ・フィネスは自動落下しない）
+      if (settings.gravity && G.active && !G.over && (G.mode === "free" || G.mode === "dig")) {
+        if (now - G.lastGravity >= settings.gravityMs) {
+          if (!tryMove(0, 1)) { hardDropNoExtend(); }
+          G.lastGravity = now;
+        }
+      }
+    } catch (e) { /* 1フレームの例外でループを止めない（ゲームパッド/長押しの永久停止を防ぐ） */ }
     requestAnimationFrame(inputLoop);
   }
   function hardDropNoExtend() {
@@ -1151,7 +1155,7 @@
     if (dir !== pad.moveDir) {
       pad.moveDir = dir;
       if (dir !== 0) { if (tryMove(dir, 0)) sfx("move"); pad.moveStart = now; pad.moveLast = now; pad.moveFired = false; }
-    } else if (dir !== 0 && G.mode !== "finesse") {
+    } else if (dir !== 0) {
       const el = now - pad.moveStart;
       if (!pad.moveFired && el >= settings.das) { pad.moveFired = true; tryMove(dir, 0); pad.moveLast = now; }
       else if (pad.moveFired && now - pad.moveLast >= settings.arr) { tryMove(dir, 0); pad.moveLast = now; }
@@ -1237,6 +1241,12 @@
     else if (act === "reset") doReset();
   }
   window.addEventListener("keydown", function (e) {
+    // パッド割り当て取得中に Esc → 取得モード解除（ゲームパッドが止まったままになるのを防ぐ）
+    if (capturePadAction && e.key === "Escape") {
+      e.preventDefault(); capturePadAction = null; pad._capPrev = null;
+      buildControlsPanel(); flashHint("パッドの割り当て設定を取り消しました。", false);
+      return;
+    }
     // キー割り当て取得中：次の打鍵を採用（Escで取消）
     if (captureKeyAction) {
       e.preventDefault();
