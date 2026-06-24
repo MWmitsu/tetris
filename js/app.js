@@ -383,6 +383,7 @@
             id: "su_" + su.key + "_" + n,
             name: label, group: su.name, type: "field",
             field: board, prefill: pf, setup: true, guide: guide,
+            segPieces: seg || null, // 通し練習で毎回ランダムな有効順を生成するため分解ミノを保持
             desc: su.desc || "", src: su.src || "",
           });
           n++;
@@ -418,12 +419,13 @@
   // 設置順ガイドの「次に置くミノ」（まだ埋まっていない最初のガイド手）
   function guideNext() {
     const t = G.template; if (!t || !t.guide) return null;
-    // 通し練習(実ゲーム)は置いた数ベースで現在ステップを決める（盤面は消去で変動するため）
+    // 通し練習(実ゲーム)：その巡のランダム生成順(cycleGuide)を置いた数ベースで案内
     if (chainActive()) {
+      const cg = (G.chain && G.chain.cycleGuide) ? G.chain.cycleGuide : t.guide;
       const i = G.chain.placed || 0;
-      if (i >= t.guide.length) return null;
-      const g = t.guide[i];
-      return { idx: i, step: i + 1, total: t.guide.length, piece: g.piece, cells: g.cells, kind: g.kind };
+      if (i >= cg.length) return null;
+      const g = cg[i];
+      return { idx: i, step: i + 1, total: cg.length, piece: g.piece, cells: g.cells, kind: g.kind };
     }
     for (let i = 0; i < t.guide.length; i++) {
       const g = t.guide[i];
@@ -651,6 +653,37 @@
     { name: "基本形② 2巡目TST", head: "②2巡目：TSTで3ライン消去！" },
     { name: "3巡目 パフェ基準形", head: "③3巡目：TSD＋全消去でパーフェクトクリア！" },
   ];
+  // 通し練習：毎回ランダムな「必ず組める設置順」を生成（同じミノ順ばかりにならないように）。
+  function randomValidOrder(pieces, prefill) {
+    const base = []; for (let r = 0; r < ROWS; r++) base.push(new Array(COLS).fill(false));
+    if (prefill) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (prefill[r][c]) base[r][c] = true;
+    const N = pieces.length; let result = null, nodes = 0;
+    function shuf(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+    function dfs(occ, used, ord) {
+      if (result || nodes++ > 50000) return;
+      if (ord.length === N) { result = ord.slice(); return; }
+      const drops = [], spins = [];
+      for (let i = 0; i < N; i++) { if (used[i]) continue; if (dropPlaceable(occ, pieces[i].cells)) drops.push(i); else if (restsPlaceable(occ, pieces[i].cells)) spins.push(i); }
+      const useSpin = drops.length === 0;
+      const list = shuf(useSpin ? spins : drops);
+      for (let k = 0; k < list.length; k++) {
+        const i = list[k], p = pieces[i];
+        p.cells.forEach(function (c) { occ[c[0]][c[1]] = true; }); used[i] = true;
+        ord.push({ piece: p.piece, cells: p.cells, kind: useSpin ? "spin" : "drop" });
+        dfs(occ, used, ord);
+        if (result) return;
+        ord.pop(); used[i] = false; p.cells.forEach(function (c) { occ[c[0]][c[1]] = false; });
+      }
+    }
+    dfs(base.map(function (r) { return r.slice(); }), new Array(N).fill(false), []);
+    return result;
+  }
+  function randomChainOrder(t) {
+    if (t && t.segPieces) { const o = randomValidOrder(t.segPieces, t.prefill); if (o) return o; }
+    const g = (t.guide || []).slice(); // フォールバック：ガイドをシャッフル
+    for (let i = g.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const tmp = g[i]; g[i] = g[j]; g[j] = tmp; }
+    return g;
+  }
   function honeycupChainStart() {
     const t1 = setupByName(CHAIN_STEPS[0].name);
     if (!t1) { flashHint("通し練習の形が見つかりません。", true); return; }
@@ -677,7 +710,9 @@
     G.lastRotation = false; G.attemptMistake = false;
     G.hintLevel = clampHint(masteryOf(t.id).lvl);
     G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
-    feedGuideBag();        // この巡で置く新しいミノ（ガイド順）を供給
+    // 毎回ランダムな「必ず組める設置順」を生成して供給（同じミノ順の繰り返しを解消）
+    G.chain.cycleGuide = randomChainOrder(t);
+    G.bag = G.chain.cycleGuide.map(function (g) { return g.piece; }); G.queue = [];
     spawnFromQueue();
     modeLabel.textContent = "通し: " + t.name;
     updateMasteryUI();
@@ -1290,7 +1325,14 @@
     if (G.mode !== "template" || !G.template) return;
     resetCommon();
     applyTemplatePrefill();
-    feedGuideBag(); // セットアップ形は同じガイド順のミノを再供給（必ず組み直せる）
+    if (chainActive()) {
+      // 通し練習中のリセット：この巡を新しいランダム順でやり直し（盤面は土台から）
+      G.chain.placed = 0;
+      G.chain.cycleGuide = randomChainOrder(G.template);
+      G.bag = G.chain.cycleGuide.map(function (g) { return g.piece; }); G.queue = [];
+    } else {
+      feedGuideBag(); // セットアップ形は同じガイド順のミノを再供給（必ず組み直せる）
+    }
     if (G.template.setup) {
       G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
       G.attemptMistake = false;
