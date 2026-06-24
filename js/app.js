@@ -113,11 +113,28 @@
     mistake: false,
     // gravity
     lastGravity: 0,
+    // 暗記モード（収録セットアップ用）
+    hintLevel: 1,          // 0=お手本 1=カラー目標 2=シルエット 3=チラ見3秒 4=暗記テスト(無表示)
+    hintShownAt: 0,        // チラ見(L3)用：表示開始時刻(performance.now)
+    attemptMistake: false, // 今回の試行で目標外へはみ出したか（習熟昇格の可否判定）
+    drill: false,          // 弱点ドリル周回中か
   };
 
   // ===== テンプレ・レジストリ & 保存（localStorage） =====
   const LS_KEY = "tt_user_templates_v1";
   let userStore = loadUserStore();
+
+  // ===== 暗記モードの習熟度（収録セットアップ形ごと） =====
+  const MASTERY_KEY = "tt_setup_mastery_v1";
+  const HINT_MAX = 4; // 0..4
+  const HINT_NAMES = ["お手本", "カラー目標", "シルエット", "チラ見3秒", "暗記テスト"];
+  let masteryStore = loadMastery();
+  function loadMastery() { try { return JSON.parse(localStorage.getItem(MASTERY_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function saveMastery() { try { localStorage.setItem(MASTERY_KEY, JSON.stringify(masteryStore)); } catch (e) {} }
+  function masteryOf(id) {
+    const m = masteryStore[id];
+    return (m && typeof m === "object") ? m : { lvl: 0, streak: 0, clears: 0, mastered: false };
+  }
 
   // 初期データ（主要セットアップ）をカタログにマージ：field(検証済み完成形)と推奨テト譜
   (function mergeCatalogData() {
@@ -161,10 +178,13 @@
     return false; // field も fsteps も無いエントリは受け付けない
   }
   // ===== 収録セットアップ（はちみつ砲ほか：fumen各ページ→完成形field群に展開） =====
-  // 灰(#7a8290)=前巡からの確定スタック。初期盤面としてプリフィルし、色付き(新規)ミノだけを
-  // 置いてその形に到達する練習にする（ガベージ行の穴も再現不能にならず、各巡の置き方練習になる）。
-  const SETUP_GRAY = "#7a8290";
+  // 灰(#7a8290 / #9aa7b5 の2トーン)=前巡からの確定スタック。初期盤面としてプリフィルし、
+  // 色付き(新規)ミノだけを置いてその形に到達する練習にする。色連結でミノ分解できる形には
+  // 設置順ガイド(t.guide)を付与し「操作で覚える」誘導に使う。
+  const SETUP_GRAYS = { "#7a8290": 1, "#9aa7b5": 1 }; // 2種の灰トーンとも確定スタック扱い
+  const SETUP_GRAY = "#7a8290";                       // プリフィルで塗る代表色
   const FUMEN_TYPE_LETTER = { 1: "I", 2: "L", 3: "O", 4: "Z", 5: "T", 6: "J", 7: "S" };
+  const COLOR_TO_PIECE = {}; ["I", "O", "T", "S", "Z", "J", "L"].forEach(function (L) { COLOR_TO_PIECE[E.PIECES[L].color] = L; });
   function setupPageBoard(page) {
     const b = window.TT_FUMEN.ffToBoard(page.field);
     // ロック操作付きページなら、その置きミノも完成形に含める（図解系は field のみで完結）
@@ -173,6 +193,92 @@
       window.TT_FUMEN.opCells(page.op).forEach(function (rc) { if (b[rc[0]]) b[rc[0]][rc[1]] = col; });
     }
     return b;
+  }
+  // --- ミノ分解（同色4連結→テトロミノ）：設置順ガイド生成用 ---
+  function tetroCandidates(L, set, must) {
+    const res = [], states = E.PIECES[L].states;
+    for (let s = 0; s < states.length; s++) {
+      const st = states[s];
+      for (let a = 0; a < st.length; a++) {
+        const dr = must[0] - st[a][0], dc = must[1] - st[a][1];
+        const abs = st.map(function (c) { return [c[0] + dr, c[1] + dc]; });
+        if (abs.every(function (c) { return set.has(c[0] + "," + c[1]); })) res.push(abs);
+      }
+    }
+    return res;
+  }
+  function splitTetros(comp, L) {
+    if (comp.length % 4 !== 0) return null;
+    const set = new Set(comp.map(function (c) { return c[0] + "," + c[1]; }));
+    function rec() {
+      if (set.size === 0) return [];
+      const arr = []; set.forEach(function (s) { arr.push(s.split(",").map(Number)); });
+      arr.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+      const cands = tetroCandidates(L, set, arr[0]);
+      for (let i = 0; i < cands.length; i++) {
+        const g = cands[i]; g.forEach(function (c) { set.delete(c[0] + "," + c[1]); });
+        const sub = rec(); if (sub) return [g].concat(sub);
+        g.forEach(function (c) { set.add(c[0] + "," + c[1]); });
+      }
+      return null;
+    }
+    return rec();
+  }
+  function segmentPieces(board) {
+    const vis = []; for (let i = 0; i < ROWS; i++) vis.push(new Array(COLS).fill(false));
+    const pieces = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const col = board[r][c];
+      if (col && !SETUP_GRAYS[col] && !vis[r][c]) {
+        const L = COLOR_TO_PIECE[col]; if (!L) return null;
+        const stk = [[r, c]], comp = [];
+        while (stk.length) {
+          const t = stk.pop(), y = t[0], x = t[1];
+          if (y < 0 || y >= ROWS || x < 0 || x >= COLS || vis[y][x] || board[y][x] !== col) continue;
+          vis[y][x] = true; comp.push([y, x]); stk.push([y + 1, x], [y - 1, x], [y, x + 1], [y, x - 1]);
+        }
+        const gs = splitTetros(comp, L); if (!gs) return null;
+        gs.forEach(function (g) { pieces.push({ piece: L, cells: g }); });
+      }
+    }
+    return pieces;
+  }
+  // 接地ドロップで置けるか（真上が空＝上から落とせ、下に支えがある＝そこで止まる）
+  function dropPlaceable(occ, cells) {
+    for (let i = 0; i < cells.length; i++) if (occ[cells[i][0]][cells[i][1]]) return false;
+    const top = {};
+    cells.forEach(function (k) { if (top[k[1]] === undefined || k[0] < top[k[1]]) top[k[1]] = k[0]; });
+    for (const c in top) for (let r = 0; r < top[c]; r++) if (occ[r][+c]) return false;
+    return restsPlaceable(occ, cells);
+  }
+  function restsPlaceable(occ, cells) {
+    for (let i = 0; i < cells.length; i++) if (occ[cells[i][0]][cells[i][1]]) return false;
+    for (let i = 0; i < cells.length; i++) {
+      const r = cells[i][0], cc = cells[i][1], nr = r + 1;
+      if (nr >= ROWS) return true;
+      if (occ[nr][cc] && !cells.some(function (k) { return k[0] === nr && k[1] === cc; })) return true;
+    }
+    return false;
+  }
+  // 接地ドロップ優先・スピン(ねじ込み)手はlastの設置順を算出。完成形を占有再現できなければnull。
+  function buildGuide(pieces, prefill, targetBoard) {
+    const occ = []; for (let r = 0; r < ROWS; r++) occ.push(new Array(COLS).fill(false));
+    if (prefill) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (prefill[r][c]) occ[r][c] = true;
+    const rem = pieces.slice(), ord = []; let guard = 0;
+    while (rem.length && guard++ < 200) {
+      let idx = -1, kind = "drop";
+      for (let i = 0; i < rem.length; i++) if (dropPlaceable(occ, rem[i].cells)) { idx = i; break; }
+      if (idx < 0) { kind = "spin"; for (let i = 0; i < rem.length; i++) if (restsPlaceable(occ, rem[i].cells)) { idx = i; break; } }
+      if (idx < 0) return null;
+      const p = rem.splice(idx, 1)[0];
+      ord.push({ piece: p.piece, cells: p.cells, kind: kind });
+      p.cells.forEach(function (c) { occ[c[0]][c[1]] = true; });
+    }
+    if (rem.length) return null;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      if ((targetBoard[r][c] ? 1 : 0) !== (occ[r][c] ? 1 : 0)) return null;
+    }
+    return ord;
   }
   function expandSetups() {
     const out = [];
@@ -195,18 +301,22 @@
             const v = board[r][c];
             if (!v) continue;
             if (r > lowest) lowest = r;
-            if (v === SETUP_GRAY) { gray++; prefill[r][c] = v; }
+            if (SETUP_GRAYS[v]) { gray++; prefill[r][c] = SETUP_GRAY; }
             else colored++;
           }
-          if (colored === 0) continue; // 全て灰＝置くミノが無い参照図。練習対象外
-          // 床から浮いた差分フレーム図（オーバーレイ）は単独で組めないので除外。
-          // 床接地(最下段に占有)かつ浮き列が1以下のものだけを「組める完成形」として採用。
-          if (!(lowest === ROWS - 1 && floatCols <= 1)) continue;
+          if (colored === 0) continue;                          // 全て灰＝置くミノが無い参照図
+          if (colored % 4 !== 0) continue;                      // 消去後の断片＝占有一致では完成不能
+          if (!(lowest === ROWS - 1 && floatCols <= 1)) continue; // 床から浮いた差分フレーム図
           const label = (sec.labels && sec.labels[i]) || (su.name + " " + (n + 1));
+          const pf = gray ? prefill : null;
+          // 色連結でミノ分解→接地順が出れば設置順ガイドを付与（出なければ形ビルドのみ）
+          let guide = null;
+          const seg = segmentPieces(board);
+          if (seg) guide = buildGuide(seg, pf, board);
           out.push({
             id: "su_" + su.key + "_" + n,
             name: label, group: su.name, type: "field",
-            field: board, prefill: (gray ? prefill : null), setup: true,
+            field: board, prefill: pf, setup: true, guide: guide,
             desc: su.desc || "", src: su.src || "",
           });
           n++;
@@ -228,6 +338,83 @@
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
       if (t.prefill[r] && t.prefill[r][c]) G.grid[r][c] = t.prefill[r][c];
     }
+  }
+
+  // ===== 暗記モード（ヒント漸減＋設置順ガイド＋習熟＋弱点ドリル） =====
+  function clampHint(n) { return Math.max(0, Math.min(HINT_MAX, n | 0)); }
+  function isSetup() { return G.mode === "template" && G.template && G.template.setup; }
+  // 設置順ガイドの「次に置くミノ」（まだ埋まっていない最初のガイド手）
+  function guideNext() {
+    const t = G.template; if (!t || !t.guide) return null;
+    for (let i = 0; i < t.guide.length; i++) {
+      const g = t.guide[i];
+      const done = g.cells.every(function (c) { return G.grid[c[0]][c[1]]; });
+      if (!done) return { idx: i, step: i + 1, total: t.guide.length, piece: g.piece, cells: g.cells, kind: g.kind };
+    }
+    return null;
+  }
+  function setupHintText(t) {
+    const m = masteryOf(t.id);
+    const lv = "暗記Lv" + G.hintLevel + "「" + HINT_NAMES[G.hintLevel] + "」";
+    const star = m.mastered ? " ★マスター済" : "";
+    const base = t.prefill ? "灰=前巡の土台。色付きミノを置いてこの形に。" : "目標形を組み上げよう。";
+    const gn = t.guide ? guideNext() : null;
+    const guideStr = gn ? " 次:" + gn.piece + "ミノ(" + gn.step + "/" + gn.total + (gn.kind === "spin" ? "・ねじ込み" : "") + ")" : (t.guide ? "" : " ※形ビルド(手順ガイド無)");
+    return "【" + t.name + "】" + base + "  " + lv + star + guideStr;
+  }
+  function setHintLevel(lv) {
+    if (!isSetup()) { flashHint("暗記レベルは収録セットアップ（★はちみつ砲）でのみ有効です。", true); return; }
+    G.hintLevel = clampHint(lv);
+    G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
+    updateMasteryUI();
+    flashHint(setupHintText(G.template), false);
+    render();
+  }
+  function nudgeHint(delta) { if (isSetup()) setHintLevel(G.hintLevel + delta); }
+  // 形を1回組めたら習熟を更新（ミスが無ければ昇格＝ヒントを1段弱める。Lv4無ミスでマスター）
+  function recordSetupClear(t) {
+    const m = masteryOf(t.id); let justMastered = false;
+    m.clears = (m.clears || 0) + 1;
+    if (!G.attemptMistake) {
+      m.streak = (m.streak || 0) + 1;
+      if (G.hintLevel >= HINT_MAX) { if (!m.mastered) justMastered = true; m.mastered = true; m.lvl = HINT_MAX; }
+      else { m.lvl = clampHint(G.hintLevel + 1); }
+    } else { m.streak = 0; }
+    masteryStore[t.id] = m; saveMastery();
+    G.hintLevel = clampHint(m.lvl);
+    G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
+    G.attemptMistake = false;
+    updateMasteryUI();
+    return justMastered;
+  }
+  // 弱点（未マスターでLvが低い・クリア少）の形を1つ選ぶ
+  function weakestSetup() {
+    let best = null;
+    SETUP_TEMPLATES.forEach(function (t) {
+      const m = masteryOf(t.id);
+      if (m.mastered) return;
+      const score = (m.lvl || 0) * 1000 + (m.clears || 0);
+      if (!best || score < best.score) best = { t: t, score: score };
+    });
+    return best ? best.t : null;
+  }
+  function startDrill() {
+    const t = weakestSetup();
+    if (!t) { flashHint("全ての収録セットアップをマスター済みです！🎉 おめでとうございます。", false); return; }
+    startTemplate(t.id);
+    G.drill = true; // startTemplate内でfalse化されるので後設定
+    flashHint("【弱点ドリル】" + setupHintText(t) + "（マスターで次の弱点へ自動移行）", false);
+  }
+  function masterySummary() {
+    let mastered = 0; const total = SETUP_TEMPLATES.length;
+    SETUP_TEMPLATES.forEach(function (t) { if (masteryOf(t.id).mastered) mastered++; });
+    return { mastered: mastered, total: total };
+  }
+  function updateMasteryUI() {
+    const el = $("mem-summary");
+    if (el) { const s = masterySummary(); el.textContent = "マスター " + s.mastered + " / " + s.total + " 形"; }
+    const lvEl = $("mem-level");
+    if (lvEl) lvEl.textContent = isSetup() ? ("Lv" + G.hintLevel + " " + HINT_NAMES[G.hintLevel]) : "—";
   }
 
   // id から実体テンプレを取得（収録セットアップ / 手順型built-in / カタログ+保存 / カスタム）
@@ -624,8 +811,11 @@
       const lead = G.lastClearLabel ? G.lastClearLabel + "！" : "";
       G.active = null;
       if (fieldMatches()) { onFieldComplete(spin); return; }
-      if (lead) flashHint(lead, false);
-      else if (fieldOverflow()) flashHint("目標の形からはみ出しました。↩Undoでやり直すか、リセットを。", true);
+      if (fieldOverflow()) {
+        if (G.template && G.template.setup) G.attemptMistake = true; // 暗記モード：ミスありは昇格させない
+        flashHint("目標の形からはみ出しました。↩Undoでやり直すか、リセットを。", true);
+      } else if (lead) flashHint(lead, false);
+      else if (isSetup()) flashHint(setupHintText(G.template), false);
       spawnFromQueue();
       render();
       return;
@@ -716,6 +906,14 @@
       lead = clearLabel(spin, 0);
     }
     lead = (lead ? lead + " " : "") + "完成！🎉";
+    if (G.template && G.template.setup) {
+      try {
+        const wasDrill = G.drill;
+        const justMastered = recordSetupClear(G.template);
+        if (wasDrill && justMastered) { flashHint(lead + " ★この形をマスター！次の弱点へ →", false); startDrill(); return; }
+        if (justMastered) lead += " ★マスター達成！";
+      } catch (e) { /* 習熟記録の失敗でゲーム進行は止めない */ }
+    }
     advanceCycle(lead);
   }
 
@@ -750,7 +948,13 @@
     G.buildSlot = null;
     if ((t.type === "field") && !t.field) { enterBuildMode(t); return; } // 未設定 → 盤面エディタ
     G.mode = "template"; G.template = t; resetCommon();
+    G.drill = false;
     applyTemplatePrefill();
+    if (t.setup) {
+      G.hintLevel = clampHint(masteryOf(t.id).lvl);
+      G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
+      G.attemptMistake = false;
+    }
     if (t.type === "fsteps") {
       modeLabel.textContent = "手順: " + t.name;
       flashHint(t.desc + "　黄色の目標位置に1手ずつ置こう（スピン/ tuck もOK・盤面はテト譜準拠）。", false);
@@ -758,15 +962,17 @@
       return;
     }
     spawnFromQueue();
-    modeLabel.textContent = "テンプレ: " + t.name;
-    const srcNote = t.src ? "（出典: " + t.src + "）" : "";
-    let fieldNote = "";
-    if (t.type === "field") {
-      fieldNote = (t.prefill
-        ? "　灰は前巡の土台（配置済）。色付きミノを置いてこの形にしよう（スピン・ホールドOK）。"
-        : "　うすい色の目標形を組み上げよう（スピン・ホールドOK）。") + srcNote;
+    modeLabel.textContent = (t.setup ? "暗記: " : "テンプレ: ") + t.name;
+    if (t.setup) {
+      flashHint(setupHintText(t), false);
+      updateMasteryUI();
+    } else {
+      const srcNote = t.src ? "（出典: " + t.src + "）" : "";
+      const fieldNote = (t.type === "field")
+        ? "　うすい色の目標形を組み上げよう（スピン・ホールドOK）。" + srcNote
+        : "";
+      flashHint(t.desc + fieldNote, false);
     }
-    flashHint(t.desc + fieldNote, false);
     render();
   }
   // 未登録テンプレ枠を埋めるための盤面エディタ（フリー操作で組んで保存）
@@ -789,6 +995,10 @@
     if (G.mode !== "template" || !G.template) return;
     resetCommon();
     applyTemplatePrefill();
+    if (G.template.setup) {
+      G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
+      G.attemptMistake = false;
+    }
     if (tplType() === "fsteps") { setFStep(0); return; }
     if ((tplType() === "field") && !G.template.field) return;
     spawnFromQueue();
@@ -995,19 +1205,48 @@
       bctx.restore();
     }
     // 完成形テンプレ(field型)の目標: 全体のうすい色オーバーレイ
+    // 収録セットアップ(暗記モード)はヒントレベルで強度を変える: 0お手本/1カラー/2シルエット/3チラ見/4暗記テスト
     if (settings.showHint && G.mode === "template" && tplType() === "field" && G.template && G.template.field) {
       const f = G.template.field;
-      bctx.save();
-      bctx.globalAlpha = 0.28;
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          if (f[r] && f[r][c] && !G.grid[r][c]) {
-            bctx.fillStyle = (typeof f[r][c] === "string") ? f[r][c] : "#8aa0b6";
-            bctx.fillRect(c * CELL + 4, r * CELL + 4, CELL - 8, CELL - 8);
+      const setup = !!G.template.setup;
+      let drawAlpha = 0.28, silhouette = false, show = true;
+      if (setup) {
+        const lv = G.hintLevel;
+        if (lv >= 4) show = false;                                                   // 暗記テスト：目標非表示
+        else if (lv === 3) { show = ((typeof performance !== "undefined" ? performance.now() : 0) - G.hintShownAt) < 3000; } // チラ見3秒
+        else if (lv === 2) { silhouette = true; drawAlpha = 0.22; }                  // シルエット（色なし）
+        else if (lv === 1) { drawAlpha = 0.30; }                                     // カラー目標
+        else { drawAlpha = 0.55; }                                                   // お手本（濃いめ）
+      }
+      if (show) {
+        bctx.save();
+        bctx.globalAlpha = drawAlpha;
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            if (f[r] && f[r][c] && !G.grid[r][c]) {
+              bctx.fillStyle = silhouette ? "#8aa0b6" : ((typeof f[r][c] === "string") ? f[r][c] : "#8aa0b6");
+              bctx.fillRect(c * CELL + 4, r * CELL + 4, CELL - 8, CELL - 8);
+            }
           }
         }
+        bctx.restore();
       }
-      bctx.restore();
+      // 設置順ガイド：お手本/カラー(Lv0,1)で「次に置くミノ」を黄色で強調（操作で覚える誘導）
+      if (setup && G.template.guide && G.hintLevel <= 1) {
+        const gn = guideNext();
+        if (gn) {
+          bctx.save();
+          bctx.strokeStyle = "rgba(255,235,80,0.98)"; bctx.lineWidth = 2.5;
+          bctx.fillStyle = "rgba(255,235,80,0.26)";
+          for (let i = 0; i < gn.cells.length; i++) {
+            const r = gn.cells[i][0], c = gn.cells[i][1];
+            if (G.grid[r][c]) continue;
+            bctx.fillRect(c * CELL + 3, r * CELL + 3, CELL - 6, CELL - 6);
+            bctx.strokeRect(c * CELL + 3, r * CELL + 3, CELL - 6, CELL - 6);
+          }
+          bctx.restore();
+        }
+      }
     }
 
     // ゴースト & アクティブ
@@ -1373,6 +1612,14 @@
     $("btn-reset").addEventListener("click", doReset);
     $("btn-undo").addEventListener("click", undo);
 
+    // 暗記モード操作
+    if ($("btn-hint-up")) $("btn-hint-up").addEventListener("click", function () { nudgeHint(1); });
+    if ($("btn-hint-down")) $("btn-hint-down").addEventListener("click", function () { nudgeHint(-1); });
+    if ($("btn-hint-demo")) $("btn-hint-demo").addEventListener("click", function () { setHintLevel(0); });
+    if ($("btn-hint-test")) $("btn-hint-test").addEventListener("click", function () { setHintLevel(HINT_MAX); });
+    if ($("btn-drill")) $("btn-drill").addEventListener("click", startDrill);
+    updateMasteryUI();
+
     // テンプレ一覧（手順型 built-in + カタログ + カスタム）
     buildMenu();
 
@@ -1466,11 +1713,14 @@
       return wrap;
     }
 
-    // 0) 収録セットアップ（はちみつ砲ほか・テト譜由来の完成形群）を最上部に
+    // 0) 収録セットアップ（はちみつ砲ほか・テト譜由来の完成形群）を最上部に。習熟度バッジ付き。
     SETUP_GROUPS.forEach(function (gname) {
       const entries = SETUP_TEMPLATES.filter(function (t) { return t.group === gname; });
       section("★ " + gname, entries, function (t) {
-        return btn(t.name, "✓ 練習可", "ok", function () { startTemplate(t.id); });
+        const m = masteryOf(t.id);
+        const badge = m.mastered ? "★マスター" : ("暗記Lv" + (m.lvl || 0) + (t.guide ? "・手順◎" : ""));
+        const cls = m.mastered ? "ok" : (m.clears ? "rec" : "unset");
+        return btn(t.name, badge, cls, function () { startTemplate(t.id); });
       });
     });
 

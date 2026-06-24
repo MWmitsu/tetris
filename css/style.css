@@ -125,6 +125,9 @@ html { overflow-y: scroll; }
 }
 .io-row { display: flex; gap: 6px; margin-top: 6px; }
 .ctrl-btn.small { margin: 0; padding: 7px 8px; font-size: 12px; }
+.mem-row { display: flex; justify-content: space-between; gap: 6px; margin: 4px 0 6px; }
+.mem-now { font-size: 12px; color: var(--muted); }
+.mem-now b { color: var(--text); }
 
 .toggle { display: block; font-size: 13px; padding: 5px 0; cursor: pointer; color: var(--text); }
 .toggle input { margin-right: 8px; transform: translateY(1px); }
