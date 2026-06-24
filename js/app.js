@@ -118,6 +118,7 @@
     hintShownAt: 0,        // チラ見(L3)用：表示開始時刻(performance.now)
     attemptMistake: false, // 今回の試行で目標外へはみ出したか（習熟昇格の可否判定）
     drill: false,          // 弱点ドリル周回中か
+    chain: null,           // はちみつ砲 通し練習(1→2→3) の状態 {on,stage,route}
   };
 
   // ===== テンプレ・レジストリ & 保存（localStorage） =====
@@ -416,6 +417,124 @@
     const lvEl = $("mem-level");
     if (lvEl) lvEl.textContent = isSetup() ? ("Lv" + G.hintLevel + " " + HINT_NAMES[G.hintLevel]) : "—";
   }
+
+  // ===== はちみつ砲 通し練習（1巡目→2巡目→3巡目・2巡目はソルバーで理想/妥協を自動判定） =====
+  let pendingChainBag = null; // 次に開始する形へ供給するバッグ（巡ごとに固定し判定とミノを一致させる）
+  function setupByName(sub) {
+    for (let i = 0; i < SETUP_TEMPLATES.length; i++) if (SETUP_TEMPLATES[i].name.indexOf(sub) >= 0) return SETUP_TEMPLATES[i];
+    return null;
+  }
+  // 2巡目「理想形(基本形② TST設置)」のソルバー用データを事前計算
+  const IDEAL2 = (function () {
+    const t = setupByName("基本形② 2巡目TST");
+    if (!t || !t.field) return null;
+    const TCOL = E.PIECES.T.color;
+    const base = []; for (let i = 0; i < ROWS; i++) base.push(new Array(COLS).fill(false));
+    const setup = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const v = t.field[r][c]; if (!v) continue;
+      if (v === TCOL) continue;                       // Tは最後のTST用に予約（土台には含めない）
+      if (SETUP_GRAYS[v] || v === SETUP_GRAY) base[r][c] = true; // 前巡の確定スタック
+      else setup.push([r, c]);                        // 6ミノで埋める土台セル
+    }
+    const idxOf = {}; setup.forEach(function (rc, i) { idxOf[rc[0] + "," + rc[1]] = i; });
+    const tset = new Set(setup.map(function (rc) { return rc[0] + "," + rc[1]; }));
+    const NONT = ["I", "O", "S", "Z", "J", "L"], placements = {};
+    NONT.forEach(function (L) {
+      const list = [], seen = new Set();
+      E.PIECES[L].states.forEach(function (st) {
+        for (let dr = -2; dr < ROWS + 2; dr++) for (let dc = -2; dc < COLS + 2; dc++) {
+          const abs = st.map(function (cc) { return [cc[0] + dr, cc[1] + dc]; });
+          if (abs.every(function (cc) { return tset.has(cc[0] + "," + cc[1]); })) {
+            const key = abs.map(function (cc) { return cc[0] + "," + cc[1]; }).sort().join("|");
+            if (!seen.has(key)) { seen.add(key); list.push(abs); }
+          }
+        }
+      });
+      placements[L] = list;
+    });
+    return { base: base, setup: setup, idxOf: idxOf, FULL: setup.length, placements: placements };
+  })();
+  function chainRests(occ, cells) {
+    for (let i = 0; i < cells.length; i++) if (occ[cells[i][0]][cells[i][1]]) return false;
+    for (let i = 0; i < cells.length; i++) {
+      const r = cells[i][0], cc = cells[i][1], nr = r + 1;
+      if (nr >= ROWS) return true;
+      if (occ[nr][cc] && !cells.some(function (k) { return k[0] === nr && k[1] === cc; })) return true;
+    }
+    return false;
+  }
+  // 実バッグ＋ホールド1＋T予約 で 2巡目理想形TST土台を組めるか（理想優先の自動判定の核）
+  function canBuildIdeal(bag) {
+    if (!IDEAL2) return true; // データ不備時は理想優先
+    const P = IDEAL2.placements, idxOf = IDEAL2.idxOf, FULL = IDEAL2.FULL;
+    const occ0 = IDEAL2.base.map(function (r) { return r.slice(); });
+    let nodes = 0; const memo = new Set();
+    function dfs(q, hold, occ, mask, count) {
+      if (count === FULL) return true;
+      if (nodes++ > 200000) return false;
+      const key = q.join("") + "|" + (hold || "-") + "|" + mask;
+      if (memo.has(key)) return false; memo.add(key);
+      function place(piece, nextQ, nextHold) {
+        const pls = P[piece] || [];
+        for (let i = 0; i < pls.length; i++) {
+          const cells = pls[i]; let ok = true;
+          for (let k = 0; k < 4; k++) if (occ[cells[k][0]][cells[k][1]]) { ok = false; break; }
+          if (!ok || !chainRests(occ, cells)) continue;
+          for (let k = 0; k < 4; k++) occ[cells[k][0]][cells[k][1]] = true;
+          let m2 = mask; for (let k = 0; k < 4; k++) m2 |= (1 << idxOf[cells[k][0] + "," + cells[k][1]]);
+          if (dfs(nextQ, nextHold, occ, m2, count + 4)) return true;
+          for (let k = 0; k < 4; k++) occ[cells[k][0]][cells[k][1]] = false;
+        }
+        return false;
+      }
+      if (!q.length) { if (hold && hold !== "T") return place(hold, [], null); return false; }
+      const cur = q[0];
+      if (cur === "T") { // Tは予約（ホールドへ）。ホールド済みなら旧holdを現在へ。
+        if (hold === null) { if (dfs(q.slice(1), "T", occ, mask, count)) return true; }
+        else if (hold !== "T") { if (dfs([hold].concat(q.slice(1)), "T", occ, mask, count)) return true; }
+        return false;
+      }
+      if (place(cur, q.slice(1), hold)) return true;        // 現在ミノを置く
+      if (hold === null) { if (dfs(q.slice(1), cur, occ, mask, count)) return true; }   // バッファ
+      else if (hold !== "T" && hold !== cur) { if (dfs([hold].concat(q.slice(1)), cur, occ, mask, count)) return true; }
+      return false;
+    }
+    return dfs(bag.slice(), null, occ0, 0, 0);
+  }
+  function honeycupChainStart() {
+    G.chain = { on: true, stage: 1, route: null };
+    startChainStage();
+  }
+  function startChainStage() {
+    const ch = G.chain; if (!ch) return;
+    const bag = E.newBag(); // この巡のバッグ（判定とプレイのミノを一致させる）
+    let t, head;
+    if (ch.stage === 1) {
+      const posT = bag.indexOf("T"), posI = bag.indexOf("I");
+      const left = posT < posI; // T が先 → 左(ホールド)型
+      t = setupByName(left ? "1巡目 左" : "1巡目 右");
+      head = "①1巡目【" + (left ? "左(ホールド)型" : "右(反転)型") + "】" + (left ? "T" : "I") + "が先。";
+    } else if (ch.stage === 2) {
+      let ideal = true; try { ideal = canBuildIdeal(bag); } catch (e) { ideal = true; }
+      ch.route = ideal ? "ideal" : "compromise";
+      t = ideal ? setupByName("基本形② 2巡目TST") : setupByName("妥協形 2巡目A");
+      head = ideal ? "②2巡目【理想形=TST】このNEXTで理想形が組めます！" : "②2巡目【妥協形】このNEXTでは理想形が組めない→妥協へ自動切替。";
+    } else if (ch.stage === 3) {
+      t = (ch.route === "ideal") ? setupByName("パフェ基準形") : setupByName("妥協形 3巡目TSTドネイトA");
+      head = (ch.route === "ideal") ? "③3巡目【TSD＋8段パーフェクトクリア】" : "③3巡目【TSTドネイト】";
+    } else {
+      G.chain.on = false;
+      flashHint("通し練習1セット完了！🎉 もう一度『通し練習』で新しいNEXTに挑戦。", false);
+      return;
+    }
+    if (!t) { G.chain.on = false; flashHint("通し練習用の形が見つかりませんでした。", true); return; }
+    pendingChainBag = bag.slice();
+    ch.bag = bag.slice(); // この巡のバッグを記憶（リセット時に再供給）
+    startTemplate(t.id); // startTemplate は pendingChainBag があれば G.chain を保持
+    flashHint("【通し練習 " + ch.stage + "/3】" + head + "　" + setupHintText(t), false);
+  }
+  function chainActive() { return G.chain && G.chain.on; }
 
   // id から実体テンプレを取得（収録セットアップ / 手順型built-in / カタログ+保存 / カスタム）
   function findTemplate(id) {
@@ -910,6 +1029,8 @@
       try {
         const wasDrill = G.drill;
         const justMastered = recordSetupClear(G.template);
+        // 通し練習中：次の巡（別の形）へ自動で進む
+        if (chainActive()) { flashHint(lead, false); G.chain.stage = (G.chain.stage || 1) + 1; startChainStage(); return; }
         if (wasDrill && justMastered) { flashHint(lead + " ★この形をマスター！次の弱点へ →", false); startDrill(); return; }
         if (justMastered) lead += " ★マスター達成！";
       } catch (e) { /* 習熟記録の失敗でゲーム進行は止めない */ }
@@ -931,6 +1052,7 @@
     captureKeyAction = null; capturePadAction = null;
   }
   function startFree() {
+    if (G.chain) G.chain.on = false;
     G.mode = "free"; resetCommon();
     ensureQueue(6); spawnFromQueue();
     modeLabel.textContent = "フリー";
@@ -940,6 +1062,9 @@
   function startTemplate(id) {
     const t = findTemplate(id);
     if (!t) return;
+    // 通し練習からの呼び出し(pendingChainBagあり)ならチェーン継続。手動選択ならチェーン解除。
+    const fromChain = !!pendingChainBag;
+    if (!fromChain && G.chain) G.chain.on = false;
     if (t.info) { // 知識ノート（盤面なし）
       G.mode = "free"; G.buildSlot = null;
       flashHint("【" + t.name + "】" + t.desc + "（知識ノート：盤面データなし）", false);
@@ -949,6 +1074,8 @@
     if ((t.type === "field") && !t.field) { enterBuildMode(t); return; } // 未設定 → 盤面エディタ
     G.mode = "template"; G.template = t; resetCommon();
     G.drill = false;
+    // 通し練習：この巡のバッグを固定供給（2巡目の判定とプレイのミノを一致させる）
+    if (pendingChainBag) { G.bag = pendingChainBag.slice(); G.queue = []; pendingChainBag = null; }
     applyTemplatePrefill();
     if (t.setup) {
       G.hintLevel = clampHint(masteryOf(t.id).lvl);
@@ -962,7 +1089,7 @@
       return;
     }
     spawnFromQueue();
-    modeLabel.textContent = (t.setup ? "暗記: " : "テンプレ: ") + t.name;
+    modeLabel.textContent = (t.setup ? (chainActive() ? "通し: " : "暗記: ") : "テンプレ: ") + t.name;
     if (t.setup) {
       flashHint(setupHintText(t), false);
       updateMasteryUI();
@@ -994,6 +1121,8 @@
   function resetTemplate() {
     if (G.mode !== "template" || !G.template) return;
     resetCommon();
+    // 通し練習中は同じ巡のバッグを再供給（判定したミノで組み直せるように）
+    if (chainActive() && G.chain.bag) { G.bag = G.chain.bag.slice(); G.queue = []; }
     applyTemplatePrefill();
     if (G.template.setup) {
       G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
@@ -1005,6 +1134,7 @@
     render();
   }
   function startDig(rowsN) {
+    if (G.chain) G.chain.on = false;
     G.mode = "dig"; resetCommon();
     rowsN = rowsN || 8;
     for (let r = ROWS - rowsN; r < ROWS; r++) {
@@ -1112,6 +1242,7 @@
     modeLabel.textContent = "フィネス 完璧 " + G.finessePerfect + "/" + G.finesseAttempts + " (" + rate + "%)";
   }
   function startFinesse() {
+    if (G.chain) G.chain.on = false;
     G.mode = "finesse"; G.template = null; resetCommon();
     refillBag();
     newFinesseTarget();
@@ -1618,6 +1749,7 @@
     if ($("btn-hint-demo")) $("btn-hint-demo").addEventListener("click", function () { setHintLevel(0); });
     if ($("btn-hint-test")) $("btn-hint-test").addEventListener("click", function () { setHintLevel(HINT_MAX); });
     if ($("btn-drill")) $("btn-drill").addEventListener("click", startDrill);
+    if ($("btn-chain")) $("btn-chain").addEventListener("click", honeycupChainStart);
     updateMasteryUI();
 
     // テンプレ一覧（手順型 built-in + カタログ + カスタム）
