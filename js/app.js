@@ -987,7 +987,7 @@
     return rep;
   }
   // ===== 簡易版はちみつ砲ガイド（決定木・honeycup_simple.json・既存機能と完全独立） =====
-  const hcSimple = { on: false, tree: null, map: null, currentId: null, selectedNextId: null };
+  const hcSimple = { on: false, tree: null, map: null, currentId: null, selectedNextId: null, history: [] };
   function loadHoneycupSimpleTree(json) {
     try { if (!json || typeof json !== "object" || !Array.isArray(json.nodes) || !json.start) return null; return json; } catch (e) { return null; }
   }
@@ -1057,10 +1057,12 @@
       if (gc.y < 0 || gc.y >= ROWS || gc.x < 0 || gc.x >= COLS) return;
       if (G.grid[gc.y] && G.grid[gc.y][gc.x]) return; // 既存ブロックがある所には描かない
       let color, alpha;
-      if (gc.piece === "G") { color = "#9aa7b5"; alpha = 0.22; }
-      else { color = (E.PIECES[gc.piece] || {}).color || "#8aa0b6"; alpha = 0.28; }
+      if (gc.piece === "G") { color = "#9aa7b5"; alpha = 0.20; }       // 土台＝薄いグレー
+      else { color = (E.PIECES[gc.piece] || {}).color || "#8aa0b6"; alpha = 0.26; } // ミノ＝各色の半透明
       ctx.globalAlpha = alpha; ctx.fillStyle = color;
       ctx.fillRect(gc.x * CELL + 4, gc.y * CELL + 4, CELL - 8, CELL - 8);
+      ctx.globalAlpha = Math.min(0.5, alpha + 0.20); ctx.strokeStyle = color; ctx.lineWidth = 1.5; // 薄い枠線で現在ブロック/アクティブと見分け
+      ctx.strokeRect(gc.x * CELL + 4, gc.y * CELL + 4, CELL - 8, CELL - 8);
     });
     ctx.restore();
   }
@@ -1068,22 +1070,31 @@
     if (!hcSimple.tree) { flashHint("簡易版ガイドのデータが読み込めませんでした（簡易版モードのみ無効）。", true); return; }
     if (G.chain) G.chain.on = false;
     if (G.mode !== "free") startFree(); // 既存オーバーレイと競合しないようフリーで重ねる
-    hcSimple.on = true; hcSimple.currentId = hcSimple.tree.start; hcSimple.selectedNextId = null;
+    hcSimple.on = true; hcSimple.currentId = hcSimple.tree.start; hcSimple.selectedNextId = null; hcSimple.history = [];
     const ms = hcSimple.tree.mapping_status || "";
     const msNote = (ms.indexOf("CONFIRMED") >= 0) ? "（CONFIRMED：node↔canvas・条件はユーザー確認済み）" : ((ms.indexOf("DRAFT") >= 0) ? "（DRAFT＝位置は目安）" : "");
     flashHint("簡易版はちみつ砲ガイド ON：背景の薄い形に沿って組み、『次の分岐へ進む』で進めます。" + msNote, false);
     updateHcSimpleDebug(); render();
   }
   function hcSimpleOff() { hcSimple.on = false; updateHcSimpleDebug(); render(); flashHint("簡易版ガイド OFF（既存挙動に戻ります）。", false); }
-  function hcSimpleReset() { if (!hcSimple.tree) return; hcSimple.currentId = hcSimple.tree.start; hcSimple.selectedNextId = null; updateHcSimpleDebug(); render(); }
+  function hcSimpleReset() { if (!hcSimple.tree) return; hcSimple.currentId = hcSimple.tree.start; hcSimple.selectedNextId = null; hcSimple.history = []; updateHcSimpleDebug(); render(); }
   function hcSimpleNext() {
     if (!hcSimple.on || !hcSimple.tree) return;
     const node = getHoneycupSimpleNodeById(hcSimple.tree, hcSimple.currentId);
     if (!node) return;
-    if (!node.edges || !node.edges.length) { flashHint("この形は終端です（次の分岐なし）。『最初に戻る』で再開できます。", false); updateHcSimpleDebug(); return; }
+    if (!node.edges || !node.edges.length) { flashHint("この形は終端です（次の分岐なし）。『最初から』で再開できます。", false); updateHcSimpleDebug(); return; }
     const to = selectNextHoneycupSimpleNode(node, hcSimpleState(), hcSimple.selectedNextId);
     if (!to) { flashHint("今の手駒（現在ミノ／ホールド／NEXT）では進める分岐がありません。条件を満たすミノ順を待つか、『候補を再抽選』を。", false); updateHcSimpleDebug(); return; }
+    hcSimple.history.push(hcSimple.currentId); // 「1つ戻る」用に履歴を積む
     hcSimple.currentId = to; hcSimple.selectedNextId = null;
+    updateHcSimpleDebug(); render();
+  }
+  function hcSimpleBack() {
+    if (!hcSimple.on || !hcSimple.tree) return;
+    if (!hcSimple.history.length) { flashHint("これ以上戻れません（開始地点です）。", false); return; }
+    const prev = hcSimple.history.pop();
+    if (prev) hcSimple.currentId = prev;
+    hcSimple.selectedNextId = null;
     updateHcSimpleDebug(); render();
   }
   function hcSimpleReroll() {
@@ -1091,7 +1102,7 @@
     const node = getHoneycupSimpleNodeById(hcSimple.tree, hcSimple.currentId);
     if (!node) return;
     hcSimple.selectedNextId = selectNextHoneycupSimpleNode(node, hcSimpleState(), null);
-    updateHcSimpleDebug();
+    updateHcSimpleDebug(); updateHcSimpleStatus(); // currentNodeは進めず、選択中候補の表示だけ即更新
   }
   function updateHcSimpleDebug() {
     const el = $("hcs-debug"); if (!el) return;
@@ -1116,6 +1127,33 @@
       L.push("grid:\n" + (node.grid || []).join("\n"));
     }
     el.textContent = L.join("\n");
+  }
+  // 通常画面の常時表示ステータス（デバッグを開かなくても現在node・操作・次候補が分かる）
+  function updateHcSimpleStatus() {
+    const el = $("hcs-status"); if (!el) return;
+    const t = hcSimple.tree;
+    let txt;
+    if (!t) txt = "簡易版ガイド：データ未読込（このモードのみ無効）";
+    else if (!hcSimple.on) txt = "簡易版ガイド：OFF（「簡易版ガイド ON（開始）」で開始）";
+    else {
+      const node = getHoneycupSimpleNodeById(t, hcSimple.currentId);
+      const st = hcSimpleState();
+      const L = [];
+      L.push("簡易版はちみつ砲ガイド：ON");
+      L.push("現在：" + (hcSimple.currentId || "-") + " / " + (node ? node.label : "-"));
+      if (!node || !node.edges || !node.edges.length) L.push("操作：この形が最終目標（終端）。組めたら「最初から」で再開");
+      else L.push("操作：この形を組んだら「次の分岐へ進む」を押してください");
+      if (node && node.edges && node.edges.length) {
+        const ev = node.edges.map(function (e) { const r = evaluateHoneycupSimpleCondition(e.condition, st); return e.condition + " → " + e.to + "：" + (r === true ? "true" : (r === false ? "false" : "unknown")); });
+        L.push("次候補：" + ev.join(" ／ ") + "　｜選択中：" + (hcSimple.selectedNextId || "(進む/再抽選で決定)"));
+      }
+      const ms = t.mapping_status || "";
+      if (ms.indexOf("CONFIRMED") >= 0) L.push("簡易版ガイド：確認済みデータ(CONFIRMED)");
+      else if (ms.indexOf("DRAFT") >= 0) L.push("※DRAFTデータ：背景位置は目安");
+      txt = L.join("\n");
+    }
+    if (el.__last === txt) return; // 毎フレームの再描画でも変化時のみDOM更新
+    el.__last = txt; el.textContent = txt;
   }
   function honeycupChainStart() {
     const t1 = setupByName(CHAIN_STEPS[0].name);
@@ -1987,6 +2025,7 @@
     if (statTspin) statTspin.textContent = G.tspins;
     if (statCycle) statCycle.textContent = G.cycles;
     updateHcDebug();
+    updateHcSimpleStatus();
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";
@@ -2441,8 +2480,10 @@
     if ($("btn-hcs-off")) $("btn-hcs-off").addEventListener("click", hcSimpleOff);
     if ($("btn-hcs-reset")) $("btn-hcs-reset").addEventListener("click", hcSimpleReset);
     if ($("btn-hcs-next")) $("btn-hcs-next").addEventListener("click", hcSimpleNext);
+    if ($("btn-hcs-back")) $("btn-hcs-back").addEventListener("click", hcSimpleBack);
     if ($("btn-hcs-reroll")) $("btn-hcs-reroll").addEventListener("click", hcSimpleReroll);
     updateHcSimpleDebug();
+    updateHcSimpleStatus();
     updateMasteryUI();
 
     // テンプレ一覧（手順型 built-in + カタログ + カスタム）
