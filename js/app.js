@@ -2040,6 +2040,13 @@
   // inputLoop から毎フレーム: ライブ表示更新＋20秒終了判定（modeLabel は固定、#ta-time のみ更新）
   function updateTimedDisplay(now) {
     if (G.timedDone) return;
+    // タイムアタック中にゲームオーバー（天井で詰み）→ タイマーを止めて表示を消す。
+    // 正常終了は finish* で timedDone=true 済みのため上の return で抜け、ここは通らない。
+    if (G.over) {
+      G.timedDone = true; G.timerStart = null; setTa("");
+      flashHint("ゲームオーバー。リセット(R / ＋ボタン)でもう一度。", true);
+      return;
+    }
     if (G.mode === "sprint") {
       const ms = G.timerStart != null ? (now - G.timerStart) : 0;
       const left = Math.max(0, (G.sprintGoal || SPRINT_GOAL) - G.lines);
@@ -2965,5 +2972,6 @@
     finishFinesse20: function () { return finishFinesse20(); },
     finishUltra: function () { return finishUltra(); },
     scoreTest: function (spin, lines, isPC) { ultraAddScore(spin, lines, !!isPC); return { score: G.score, b2b: G.b2b, combo: G.combo }; },
+    tick: function () { return updateTimedDisplay(typeof performance !== "undefined" ? performance.now() : 0); },
   };
 })();
