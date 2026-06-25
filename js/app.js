@@ -987,7 +987,9 @@
     return rep;
   }
   // ===== 簡易版はちみつ砲ガイド（決定木・honeycup_simple.json・既存機能と完全独立） =====
-  const hcSimple = { on: false, tree: null, map: null, currentId: null, selectedNextId: null, history: [] };
+  const hcSimple = { on: false, tree: null, map: null, currentId: null, selectedNextId: null, history: [], lastDecision: null };
+  const HC_SIMPLE_LEAVES = ["A1", "A2", "B1", "B2", "D1", "E1", "E2"]; // 葉（終端）ノード
+  function hcSimpleIsLeaf(id) { return HC_SIMPLE_LEAVES.indexOf(id) >= 0; }
   function loadHoneycupSimpleTree(json) {
     try { if (!json || typeof json !== "object" || !Array.isArray(json.nodes) || !json.start) return null; return json; } catch (e) { return null; }
   }
@@ -1019,33 +1021,66 @@
   function hcSimpleState() {
     return { currentPiece: G.active ? G.active.piece : null, holdPiece: G.hold || null, nextQueue: (G.queue || []).slice() };
   }
-  function evaluateHoneycupSimpleCondition(condition, state) {
+  // 可視ミノ内の早さ index（hold＋current＋next）。見えなければ null。
+  function hcSimpleIdx(piece, state) {
     const vis = [state.holdPiece, state.currentPiece].concat(state.nextQueue || []).filter(Boolean);
-    function idx(p) { return vis.indexOf(p); }
-    function order(a, b) { const ia = idx(a), ib = idx(b); if (ia < 0 || ib < 0) return "unknown"; return ia < ib; }
+    const i = vis.indexOf(piece); return i < 0 ? null : i;
+  }
+  // 基本条件を true / false / "unknown"（片方しか見えなければ unknown）
+  function hcSimpleEvalBasic(condition, state) {
+    const O = hcSimpleIdx("O", state), J = hcSimpleIdx("J", state), S = hcSimpleIdx("S", state), L = hcSimpleIdx("L", state), T = hcSimpleIdx("T", state);
     switch (condition) {
-      case "O>J": return order("O", "J");
-      case "J>O": return order("J", "O");
-      case "S>L": return order("S", "L");
-      case "L>S": return order("L", "S");
-      case "T早め": case "T早め(別形)": { const i = idx("T"); return i < 0 ? "unknown" : i <= 2; }
-      case "T遅め": case "T遅め(別形)": { const i = idx("T"); return i < 0 ? "unknown" : i >= 3; }
-      case "確定": return true;
-      case "LZ早い方で屋根を付ける": return (idx("L") >= 0 || idx("Z") >= 0) ? true : "unknown";
-      case "(運が良いと)パフェ": case "パフェ": return true;
+      case "O>J": return (O === null || J === null) ? "unknown" : (O < J);
+      case "J>O": return (O === null || J === null) ? "unknown" : (J < O);
+      case "S>L": return (S === null || L === null) ? "unknown" : (S < L);
+      case "L>S": return (S === null || L === null) ? "unknown" : (L < S);
+      case "T早め": return (T === null) ? "unknown" : (T <= 2);
+      case "T遅め": return (T === null) ? "unknown" : (T >= 3);
       default: return "unknown";
     }
   }
-  function selectNextHoneycupSimpleNode(currentNode, state, previousSelectedTo) {
-    const edges = (currentNode && currentNode.edges) || [];
-    if (!edges.length) return null;
-    const ev = edges.map(function (e) { return { to: e.to, condition: e.condition, r: evaluateHoneycupSimpleCondition(e.condition, state) }; });
-    const trues = ev.filter(function (e) { return e.r === true; });
-    const unknowns = ev.filter(function (e) { return e.r === "unknown"; });
-    const pool = trues.length ? trues : (unknowns.length ? unknowns : []);
-    if (!pool.length) return null;
-    if (previousSelectedTo && pool.some(function (e) { return e.to === previousSelectedTo; })) return previousSelectedTo;
-    return pool[Math.floor(Math.random() * pool.length)].to;
+  // 解決済み分岐ルール（JSONのedgesをそのまま評価せず node.id ごとに明示）。候補集合＋理由を返す。
+  function hcSimpleCandidates(node, state) {
+    if (!node) return { cands: [], reason: "node無し" };
+    const id = node.id;
+    if (hcSimpleIsLeaf(id)) return { cands: [], reason: "葉（終端）" };
+    function T(c) { return hcSimpleEvalBasic(c, state) === true; }
+    let cands = [], reason = "";
+    if (id === "root") {
+      if (T("J>O")) { cands = ["C"]; reason = "J>O"; }
+      else if (T("O>J") && T("S>L")) { cands = ["A"]; reason = "O>J かつ S>L"; }
+      else if (T("O>J") && T("L>S")) { cands = ["B"]; reason = "O>J かつ L>S"; }
+      else if (T("O>J")) { cands = ["A", "B"]; reason = "O>J（S/L不明→A/Bランダム）"; }
+      else { reason = "O/Jの順序が不明（分岐保留）"; }
+    } else if (id === "A") {
+      if (T("T早め")) { cands = ["A1", "A2"]; reason = "T早め→A1/A2ランダム"; } else { reason = "T早めが未確定（分岐保留）"; }
+    } else if (id === "B") {
+      if (T("T遅め")) { cands = ["B1", "B2"]; reason = "T遅め→B1/B2ランダム"; } else { reason = "T遅めが未確定（分岐保留）"; }
+    } else if (id === "C") {
+      if (T("S>L")) { cands = ["D"]; reason = "S>L→D"; } else { cands = ["E"]; reason = "S>L以外→E（確定/フォールバック）"; }
+    } else if (id === "D") { cands = ["D1"]; reason = "確定→D1"; }
+    else if (id === "E") { cands = ["E1", "E2"]; reason = "E1/E2ランダム"; }
+    return { cands: cands, reason: reason };
+  }
+  // 次ノードを解決（既選択を維持／reroll時は再抽選）。葉や条件未確定なら null。
+  function hcSimpleResolveNextNode(node, state, reroll) {
+    if (!node || hcSimpleIsLeaf(node.id)) return null;
+    if (!reroll && hcSimple.selectedNextId) return hcSimple.selectedNextId;
+    const r = hcSimpleCandidates(node, state);
+    hcSimple.lastDecision = r.reason;
+    if (!r.cands.length) return null;
+    return r.cands[Math.floor(Math.random() * r.cands.length)];
+  }
+  // このnodeに関係する条件の判定を文字列化（UI表示用）
+  function hcSimpleJudgeStr(node, state) {
+    if (!node) return "";
+    const id = node.id; let conds = [];
+    if (id === "root") conds = ["O>J", "J>O", "S>L", "L>S"];
+    else if (id === "A") conds = ["T早め"];
+    else if (id === "B") conds = ["T遅め"];
+    else if (id === "C") conds = ["S>L"];
+    if (!conds.length) return "";
+    return conds.map(function (c) { const r = hcSimpleEvalBasic(c, state); return c + "=" + (r === true ? "true" : (r === false ? "false" : "unknown")); }).join(", ");
   }
   function drawHcSimpleGhost(ctx) {
     if (!hcSimple.on || !hcSimple.tree || !hcSimple.currentId) return;
@@ -1082,12 +1117,12 @@
     if (!hcSimple.on || !hcSimple.tree) return;
     const node = getHoneycupSimpleNodeById(hcSimple.tree, hcSimple.currentId);
     if (!node) return;
-    if (!node.edges || !node.edges.length) { flashHint("この形は終端です（次の分岐なし）。『最初から』で再開できます。", false); updateHcSimpleDebug(); return; }
-    const to = selectNextHoneycupSimpleNode(node, hcSimpleState(), hcSimple.selectedNextId);
-    if (!to) { flashHint("今の手駒（現在ミノ／ホールド／NEXT）では進める分岐がありません。条件を満たすミノ順を待つか、『候補を再抽選』を。", false); updateHcSimpleDebug(); return; }
-    hcSimple.history.push(hcSimple.currentId); // 「1つ戻る」用に履歴を積む
+    if (hcSimpleIsLeaf(node.id)) { flashHint("最終ガイドです。この形を組んで練習終了です。", false); updateHcSimpleStatus(); return; }
+    const to = hcSimpleResolveNextNode(node, hcSimpleState(), false);
+    if (!to) { flashHint("今の手駒（現在ミノ／ホールド／NEXT）では分岐が確定しません。条件を満たすミノ順を待つか『再抽選』を。", false); updateHcSimpleStatus(); updateHcSimpleDebug(); return; }
+    hcSimple.history.push(hcSimple.currentId); // 「戻る」用に履歴を積む
     hcSimple.currentId = to; hcSimple.selectedNextId = null;
-    updateHcSimpleDebug(); render();
+    updateHcSimpleStatus(); updateHcSimpleDebug(); render();
   }
   function hcSimpleBack() {
     if (!hcSimple.on || !hcSimple.tree) return;
@@ -1101,8 +1136,8 @@
     if (!hcSimple.on || !hcSimple.tree) return;
     const node = getHoneycupSimpleNodeById(hcSimple.tree, hcSimple.currentId);
     if (!node) return;
-    hcSimple.selectedNextId = selectNextHoneycupSimpleNode(node, hcSimpleState(), null);
-    updateHcSimpleDebug(); updateHcSimpleStatus(); // currentNodeは進めず、選択中候補の表示だけ即更新
+    hcSimple.selectedNextId = hcSimpleResolveNextNode(node, hcSimpleState(), true); // 同じ候補群から選び直す（currentNodeは進めない）
+    updateHcSimpleStatus(); updateHcSimpleDebug();
   }
   function updateHcSimpleDebug() {
     const el = $("hcs-debug"); if (!el) return;
@@ -1110,49 +1145,47 @@
     if (!t) { el.textContent = "簡易版ガイドデータ未読込（このモードのみ無効）。"; return; }
     const node = getHoneycupSimpleNodeById(t, hcSimple.currentId);
     const st = hcSimpleState();
+    const vis = [st.holdPiece, st.currentPiece].concat(st.nextQueue || []).filter(Boolean);
     const L = [];
-    L.push("tree: " + t.name + " / " + t.title);
-    const _ms = t.mapping_status || "";
-    if (_ms.indexOf("CONFIRMED") >= 0) L.push("✓ CONFIRMED：node↔canvas対応・分岐条件はユーザー確認済みデータです。");
-    else if (_ms.indexOf("DRAFT") >= 0) L.push("⚠ 簡易版ガイドはDRAFTデータです。派生・背景位置は目安として使用してください。");
-    L.push("mode: " + (hcSimple.on ? "ON" : "OFF") + " ／ 現在node: " + (hcSimple.currentId || "-") + (node ? (" 「" + node.label + "」canvas" + node.canvas) : ""));
-    L.push("現在ミノ: " + (st.currentPiece || "-") + "  ホールド: " + (st.holdPiece || "-") + "  NEXT: " + st.nextQueue.slice(0, 5).join(" "));
-    if (node) {
-      if (node.edges && node.edges.length) {
-        L.push("分岐:");
-        node.edges.forEach(function (e) { const r = evaluateHoneycupSimpleCondition(e.condition, st); L.push("  [" + (r === true ? "○true" : (r === false ? "×false" : "?unknown")) + "] " + e.condition + " → " + e.to); });
-        L.push("選択中の次node: " + (hcSimple.selectedNextId || "(再抽選/進む時に決定)"));
-      } else { L.push("分岐: なし（終端）"); }
-      L.push("fumen: " + (node.fumen || ""));
-      L.push("grid:\n" + (node.grid || []).join("\n"));
-    }
+    L.push("tree: " + t.title);
+    L.push("mapping_status: " + (t.mapping_status || ""));
+    L.push("mode: " + (hcSimple.on ? "ON" : "OFF") + " ／ currentNodeId: " + (hcSimple.currentId || "-"));
+    if (node) L.push("label: " + node.label + " / canvas: " + node.canvas);
+    L.push("visiblePieces: " + (vis.length ? vis.join(" ") : "-"));
+    ["O>J", "J>O", "S>L", "L>S", "T早め", "T遅め"].forEach(function (c) { const r = hcSimpleEvalBasic(c, st); L.push("  " + c + " = " + (r === true ? "true" : (r === false ? "false" : "unknown"))); });
+    if (node) { const r = hcSimpleCandidates(node, st); L.push("解決ルール: " + r.reason + " → 候補[" + r.cands.join(",") + "]"); }
+    L.push("selectedNextNodeId: " + (hcSimple.selectedNextId || "(未)"));
+    L.push("history: [" + hcSimple.history.join(" → ") + "]");
+    if (node) { L.push("fumen: " + (node.fumen || "")); L.push("grid:\n" + (node.grid || []).join("\n")); }
     el.textContent = L.join("\n");
   }
-  // 通常画面の常時表示ステータス（デバッグを開かなくても現在node・操作・次候補が分かる）
+  // 通常画面の常時ステータス（現在node・現在ミノ/ホールド/NEXT・次候補・判定・操作・終端）
   function updateHcSimpleStatus() {
     const el = $("hcs-status"); if (!el) return;
     const t = hcSimple.tree;
     let txt;
     if (!t) txt = "簡易版ガイド：データ未読込（このモードのみ無効）";
-    else if (!hcSimple.on) txt = "簡易版ガイド：OFF（「簡易版ガイド ON（開始）」で開始）";
+    else if (!hcSimple.on) txt = "簡易版ガイド：OFF（「簡易版ガイド ON」で開始）";
     else {
       const node = getHoneycupSimpleNodeById(t, hcSimple.currentId);
       const st = hcSimpleState();
       const L = [];
       L.push("簡易版はちみつ砲ガイド：ON");
       L.push("現在：" + (hcSimple.currentId || "-") + " / " + (node ? node.label : "-"));
-      if (!node || !node.edges || !node.edges.length) L.push("操作：この形が最終目標（終端）。組めたら「最初から」で再開");
-      else L.push("操作：この形を組んだら「次の分岐へ進む」を押してください");
-      if (node && node.edges && node.edges.length) {
-        const ev = node.edges.map(function (e) { const r = evaluateHoneycupSimpleCondition(e.condition, st); return e.condition + " → " + e.to + "：" + (r === true ? "true" : (r === false ? "false" : "unknown")); });
-        L.push("次候補：" + ev.join(" ／ ") + "　｜選択中：" + (hcSimple.selectedNextId || "(進む/再抽選で決定)"));
+      L.push("現在ミノ：" + (st.currentPiece || "-") + " ／ ホールド：" + (st.holdPiece || "-") + " ／ NEXT：" + st.nextQueue.slice(0, 5).join(" "));
+      if (node && hcSimpleIsLeaf(node.id)) {
+        L.push("最終ガイドです。この形を組んで練習終了です。");
+      } else if (node) {
+        const r = hcSimpleCandidates(node, st);
+        L.push("次候補：" + (r.cands.length ? r.cands.join(" / ") : "（手駒待ち）") + (hcSimple.selectedNextId ? "　｜選択中：" + hcSimple.selectedNextId : ""));
+        const j = hcSimpleJudgeStr(node, st); if (j) L.push("判定：" + j);
+        L.push("操作：この形を組んだら「次へ」を押してください。");
       }
       const ms = t.mapping_status || "";
       if (ms.indexOf("CONFIRMED") >= 0) L.push("簡易版ガイド：確認済みデータ(CONFIRMED)");
-      else if (ms.indexOf("DRAFT") >= 0) L.push("※DRAFTデータ：背景位置は目安");
       txt = L.join("\n");
     }
-    if (el.__last === txt) return; // 毎フレームの再描画でも変化時のみDOM更新
+    if (el.__last === txt) return; // 変化時のみDOM更新
     el.__last = txt; el.textContent = txt;
   }
   function honeycupChainStart() {
