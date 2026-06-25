@@ -815,17 +815,19 @@
     G.lastRotation = false; G.attemptMistake = false;
     G.hintLevel = clampHint(masteryOf(t.id).lvl);
     G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
-    ensureQueue(6); // フリーと同じ7-bag生成（毎回違うミノ順）
-    spawnFromQueue();
-    // この巡を、今のバッグで成立する組み手順(P)の中からランダムに1つ自動選択して案内（複数成立ならランダム）。
+    // この巡を、来るバッグで成立する組み手順(P)から自動選択。成立しなければ確実に組めるガイド順を供給。
     G.chain.tiling = null; G.chain.pInfo = null;
-    const peekBag = (G.active ? [G.active.piece] : []).concat(G.queue.slice(0, 6));
+    ensureQueue(7); // フリーと同じ7-bag（7個ピークして判定）
+    const peekBag = G.queue.slice(0, 7);
     const pick = pickCycleTiling(t, peekBag);
-    if (pick) { G.chain.tiling = pick.tiling; G.chain.pInfo = pick; }
+    if (pick) { G.chain.tiling = pick.tiling; G.chain.pInfo = pick; } // 成立→ランダムバッグのまま
+    else { feedGuideBag(); }                                          // ランダムでは組めない巡(例:硬い1巡目)→ガイド順で確実に組める
+    spawnFromQueue();
     modeLabel.textContent = "通し: " + t.name;
     updateMasteryUI();
     let pmsg = "";
     if (G.chain.pInfo && G.chain.pInfo.total > 1) { const pi = G.chain.pInfo; pmsg = " ｜手順P" + pi.pNo + "を自動選択(組める" + pi.buildableCount + "/" + pi.total + "通りから)"; }
+    else if (!G.chain.tiling) { pmsg = " ｜この巡はガイド順で供給（確実に組める）"; }
     flashHint("【通し練習 " + ch.stage + "/3】" + step.head + pmsg + "　" + setupHintText(t), false);
     render();
   }
