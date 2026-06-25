@@ -422,11 +422,12 @@
     // 通し練習(実ゲーム・7-bag)：今のアクティブミノがこの形で入るスロットを案内（適応型）
     if (chainActive()) {
       const a = G.active; if (!a) return null;
-      for (let i = 0; i < t.guide.length; i++) {
-        const g = t.guide[i];
+      const guide = (G.chain && G.chain.tiling && G.chain.tiling.length) ? G.chain.tiling : t.guide;
+      for (let i = 0; i < guide.length; i++) {
+        const g = guide[i];
         if (g.piece !== a.piece) continue;
         const filled = g.cells.every(function (c) { return G.grid[c[0]] && G.grid[c[0]][c[1]]; });
-        if (!filled) return { idx: i, step: i + 1, total: t.guide.length, piece: g.piece, cells: g.cells, kind: g.kind, adaptive: true };
+        if (!filled) return { idx: i, step: i + 1, total: guide.length, piece: g.piece, cells: g.cells, kind: g.kind, adaptive: true };
       }
       return null; // 今のミノはこの巡では使わない → ホールド推奨
     }
@@ -694,6 +695,84 @@
     for (let i = g.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const tmp = g[i]; g[i] = g[j]; g[j] = tmp; }
     return g;
   }
+  // ===== 通し練習の「組み手順(P)」判定 =====
+  // 形(color占有)を「7種1個ずつ」で組む有効な手順を全列挙＝本物のP1..Pn（最下セルを覆うcover-lowest法）。
+  function hcEnumTilings(board, prefill) {
+    const reg = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (board[r][c] && !SETUP_GRAYS[board[r][c]]) reg.push([r, c]);
+    const N = reg.length / 4; if (N < 1 || N % 1 !== 0) return [];
+    const regSet = new Set(reg.map(function (p) { return p[0] + "," + p[1]; }));
+    const occ = []; for (let r = 0; r < ROWS; r++) occ.push(new Array(COLS).fill(false));
+    if (prefill) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (prefill[r][c]) occ[r][c] = true;
+    const LK = ["I", "O", "T", "S", "Z", "J", "L"];
+    const PL = {};
+    LK.forEach(function (L) {
+      const out = [], seen = {}, sts = E.PIECES[L].states;
+      for (let r = 0; r < ROWS; r++) for (let c = -2; c < COLS; c++) for (let s = 0; s < sts.length; s++) {
+        const st = sts[s], cs = []; let ok = true;
+        for (let a = 0; a < st.length; a++) { const rr = st[a][0] + r, cc = st[a][1] + c; if (!regSet.has(rr + "," + cc)) { ok = false; break; } cs.push([rr, cc]); }
+        if (ok && cs.length === 4) { const k = cs.map(function (x) { return x[0] + "," + x[1]; }).sort().join("|"); if (!seen[k]) { seen[k] = 1; out.push(cs); } }
+      }
+      PL[L] = out;
+    });
+    const tilings = [], sigSeen = {}; let nodes = 0; const used = {};
+    function lowest() { let bR = -1, bC = 99; for (let i = 0; i < reg.length; i++) { const p = reg[i]; if (!occ[p[0]][p[1]]) { if (p[0] > bR || (p[0] === bR && p[1] < bC)) { bR = p[0]; bC = p[1]; } } } return bR < 0 ? null : [bR, bC]; }
+    function dfs(pl, acc) {
+      if (nodes++ > 200000 || tilings.length >= 16) return;
+      if (pl === N) { const sig = acc.map(function (g) { return g.piece + g.cells.map(function (c) { return c[0] + "," + c[1]; }).sort().join("|"); }).sort().join(";"); if (!sigSeen[sig]) { sigSeen[sig] = 1; tilings.push(acc.slice()); } return; }
+      const L = lowest(); if (!L) return;
+      for (const t in PL) {
+        if (used[t]) continue;
+        const pls = PL[t];
+        for (let k = 0; k < pls.length; k++) {
+          const cs = pls[k]; let cov = false; for (let x = 0; x < 4; x++) if (cs[x][0] === L[0] && cs[x][1] === L[1]) { cov = true; break; }
+          if (!cov) continue;
+          const dk = dropPlaceable(occ, cs); if (!dk && !restsPlaceable(occ, cs)) continue;
+          used[t] = true; for (let x = 0; x < 4; x++) occ[cs[x][0]][cs[x][1]] = true;
+          acc.push({ piece: t, cells: cs.map(function (c) { return [c[0], c[1]]; }), kind: dk ? "drop" : "spin" });
+          dfs(pl + 1, acc);
+          acc.pop(); used[t] = false; for (let x = 0; x < 4; x++) occ[cs[x][0]][cs[x][1]] = false;
+        }
+      }
+    }
+    dfs(0, []);
+    return tilings;
+  }
+  // ある手順(tiling)を「来るバッグ(到着順)＋ホールド1」で組めるか（各ミノを所定位置にドロップ/ねじ込みで置けるか）。
+  function hcTilingBuildable(tiling, prefill, bag) {
+    const occ = []; for (let r = 0; r < ROWS; r++) occ.push(new Array(COLS).fill(false));
+    if (prefill) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (prefill[r][c]) occ[r][c] = true;
+    const pos = {}; tiling.forEach(function (s) { pos[s.piece] = s.cells; });
+    const N = tiling.length; let nodes = 0;
+    function dfs(ptr, held, placed) {
+      if (nodes++ > 30000) return false;
+      if (placed.size === N) return true;
+      const av = []; if (ptr < bag.length) av.push([bag[ptr], "a"]); if (held) av.push([held, "h"]);
+      for (let ai = 0; ai < av.length; ai++) {
+        const p = av[ai][0], src = av[ai][1]; if (placed.has(p)) continue;
+        const cs = pos[p]; if (!cs) continue;
+        if (!dropPlaceable(occ, cs) && !restsPlaceable(occ, cs)) continue;
+        for (let x = 0; x < 4; x++) occ[cs[x][0]][cs[x][1]] = true; placed.add(p);
+        const ok = dfs(src === "a" ? ptr + 1 : ptr, src === "a" ? held : null, placed);
+        placed.delete(p); for (let x = 0; x < 4; x++) occ[cs[x][0]][cs[x][1]] = false;
+        if (ok) return true;
+      }
+      if (!held && ptr < bag.length) { if (dfs(ptr + 1, bag[ptr], placed)) return true; }
+      return false;
+    }
+    return dfs(0, null, new Set());
+  }
+  // この巡の形を、今のバッグで成立する手順(P)の中からランダムに1つ選ぶ（＝自動判定）。
+  function pickCycleTiling(t, bag) {
+    if (!t || !t.field) return null;
+    const tilings = hcEnumTilings(t.field, t.prefill);
+    if (!tilings.length) return null;
+    const buildable = [];
+    for (let i = 0; i < tilings.length; i++) if (hcTilingBuildable(tilings[i], t.prefill, bag)) buildable.push(i);
+    if (!buildable.length) return null;
+    const pickIdx = buildable[Math.floor(Math.random() * buildable.length)];
+    return { tiling: tilings[pickIdx], pNo: buildable.indexOf(pickIdx) + 1, total: tilings.length, buildableCount: buildable.length };
+  }
   function honeycupChainStart() {
     const t1 = setupByName(CHAIN_STEPS[0].name);
     if (!t1) { flashHint("通し練習の形が見つかりません。", true); return; }
@@ -721,9 +800,16 @@
     G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
     ensureQueue(6); // フリーと同じ7-bag生成（毎回違うミノ順）
     spawnFromQueue();
+    // この巡を、今のバッグで成立する組み手順(P)の中からランダムに1つ自動選択して案内（複数成立ならランダム）。
+    G.chain.tiling = null; G.chain.pInfo = null;
+    const peekBag = (G.active ? [G.active.piece] : []).concat(G.queue.slice(0, 6));
+    const pick = pickCycleTiling(t, peekBag);
+    if (pick) { G.chain.tiling = pick.tiling; G.chain.pInfo = pick; }
     modeLabel.textContent = "通し: " + t.name;
     updateMasteryUI();
-    flashHint("【通し練習 " + ch.stage + "/3】" + step.head + "　" + setupHintText(t), false);
+    let pmsg = "";
+    if (G.chain.pInfo && G.chain.pInfo.total > 1) { const pi = G.chain.pInfo; pmsg = " ｜手順P" + pi.pNo + "を自動選択(組める" + pi.buildableCount + "/" + pi.total + "通りから)"; }
+    flashHint("【通し練習 " + ch.stage + "/3】" + step.head + pmsg + "　" + setupHintText(t), false);
     render();
   }
   function chainActive() { return G.chain && G.chain.on; }
@@ -2183,4 +2269,5 @@
 
   // デバッグ用に公開
   window.TTGAME = G;
+  window.__HC = { hcEnumTilings: hcEnumTilings, hcTilingBuildable: hcTilingBuildable, pickCycleTiling: pickCycleTiling, setupByName: setupByName };
 })();
