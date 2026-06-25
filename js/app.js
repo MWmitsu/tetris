@@ -1911,20 +1911,20 @@
     render();
   }
 
-  // ===== フィネス練習（データ駆動・最少入力 / DAS=1アクション） =====
-  // 出典: outputs/Ｏミノの最適化/finesse_o.json（js/finesse.js の window.TT_FINESSE に収録）。
-  // 行動の数え方: ←/→ の「押下1回」＝1アクション（DAS長押しも1回）。回転1回=1アクション。
-  // ハードドロップは設置操作で数えない。pressMove・パッド方向確定・タッチ左右・tryRotate/180 の
-  // 各「離散押下」地点で G.finesseInputs を加算する（DASのARR連続は加算しない）。
-  // まずは Ｏミノのみ実装。window.TT_FINESSE.pieces に追加すれば自動で練習対象に含まれる。
-  const FIN_EMPTY = E.emptyGrid(); // 目標セル算出用の空盤面（読み取り専用・破壊しない）
+  // ===== フィネス練習（データ駆動・全7ミノ・最少入力 / DAS=1アクション） =====
+  // 出典: js/finesse.js の window.TT_FINESSE（shiwehi.com 各ミノ最適化 + Ｏミノ）。
+  // 行動の数え方: ←/→ の「押下1回」＝1アクション（DAS長押しも1回）・回転1回=1アクション・
+  // ハードドロップは数えない。計数は離散押下点（pressMove / パッド方向確定 / タッチ左右）と
+  // tryRotate/180 で G.finesseInputs に加算（DASのARR連続は加算しない）。
+  // 配置は (orient, leftmost_col) で一意。shape から盤面の目標セルを生成し、設置セルと
+  // cellKey 一致で「向き＋位置」を判定する。最適アクション数 = placement.inputs.length。
   const FINESSE_DATA = (window.TT_FINESSE && window.TT_FINESSE.pieces) || {};
   const FIN_INPUT_DISP = {
-    L: "←", R: "→", DASL: "←長押し(壁まで)", DASR: "→長押し(壁まで)",
-    CW: "右回転", CCW: "左回転", ROT180: "180°回転",
+    TAP_L: "←", TAP_R: "→", DAS_L: "←長押し(壁まで)", DAS_R: "→長押し(壁まで)",
+    ROT_CW: "右回転", ROT_CCW: "左回転",
   };
   function finessePieceData(piece) { return FINESSE_DATA[piece] || null; }
-  // 実装済み（盤面エンジンに存在する）ミノだけを練習対象にする
+  // 実装済み（盤面エンジンに存在し、配置データがある）ミノだけを練習対象にする
   function finesseImplementedPieces() {
     return Object.keys(FINESSE_DATA).filter(function (p) { return E.PIECES[p] && (FINESSE_DATA[p].placements || []).length; });
   }
@@ -1934,28 +1934,48 @@
     const k = ks[0];
     return (typeof KEY_DISP !== "undefined" && KEY_DISP[k]) || (k.length === 1 ? k.toUpperCase() : k);
   }
-  // 占有セルの最小列 = その配置の左セル列(left_col)。回転後でも実セルから算出して堅牢に判定。
-  function minColOf(piece, rot, px, py) {
-    const cells = E.absCells(piece, rot, px, py);
-    let m = 99; for (let i = 0; i < cells.length; i++) m = Math.min(m, cells[i][1]);
-    return m;
+  // shape([x=右, y=上] の正規化セル; 空盤面ハードドロップ着地形) + leftmost_col → 盤面セル[[row,col]]。
+  // 最下段(y=0)が床(row=ROWS-1)に接地。row = (ROWS-1) - y, col = leftmost_col + x。
+  function finesseShapeCells(shape, leftCol) {
+    const out = [];
+    for (let i = 0; i < shape.length; i++) { out.push([(ROWS - 1) - shape[i][1], leftCol + shape[i][0]]); }
+    return out;
   }
-  function pieceLeftColOffset(piece) { // state0で left_col = px + minColOffset
-    const cells = E.PIECES[piece].states[0];
-    let m = 9; for (let i = 0; i < cells.length; i++) m = Math.min(m, cells[i][1]);
-    return m;
+  // inputs トークン列を空盤面で抽象実行（DAS=壁まで / TAP=±1 / 回転=エンジンE.rotate）し、
+  // ハードドロップ着地形のセルを返す。実ゲームと同じエンジンを使うため「最適手を実行した結果」を
+  // 正確に再現でき、実時間DASのrAF間引きにも依存しない。
+  function finesseSimulate(piece, inputs) {
+    if (!E.PIECES[piece]) return null;
+    const g = E.emptyGrid();
+    const st = E.spawnState(piece); // {piece, rot, px, py}
+    function canMove(dx) { return !E.collide(g, st.piece, st.rot, st.px + dx, st.py); }
+    for (let i = 0; i < (inputs || []).length; i++) {
+      const tok = inputs[i];
+      if (tok === "TAP_L") { if (canMove(-1)) st.px -= 1; }
+      else if (tok === "TAP_R") { if (canMove(1)) st.px += 1; }
+      else if (tok === "DAS_L") { let n = 0; while (canMove(-1) && n < 20) { st.px -= 1; n++; } }
+      else if (tok === "DAS_R") { let n = 0; while (canMove(1) && n < 20) { st.px += 1; n++; } }
+      else if (tok === "ROT_CW") { const r = E.rotate(g, st, 1); if (r) { st.rot = r.rot; st.px = r.px; st.py = r.py; } }
+      else if (tok === "ROT_CCW") { const r = E.rotate(g, st, -1); if (r) { st.rot = r.rot; st.px = r.px; st.py = r.py; } }
+    }
+    const py = E.dropY(g, st.piece, st.rot, st.px, st.py);
+    const cells = E.absCells(st.piece, st.rot, st.px, py);
+    return { key: E.cellKey(cells), cells: cells, rot: st.rot, px: st.px };
   }
-  // left_col 配置をrot0で空盤面に落としたときの占有セル（黄色目標の描画用）
-  function finesseTargetCells(piece, leftCol) {
-    const px = leftCol - pieceLeftColOffset(piece);
-    const py = E.dropY(FIN_EMPTY, piece, 0, px, -2);
-    return E.absCells(piece, 0, px, py);
+  // 出題目標セル = 最適手(inputs)を実行した着地形（＝ヒント通りに置けば必ず目標と一致）。
+  // データの shape/leftmost_col は記述メタで、Lのミラー生成等で当エンジンと列ラベルが
+  // 1ずれることがあるため、判定の真値は inputs から再現した着地形を採用する。
+  function finesseTargetCells(piece, pl) {
+    if (pl && pl.inputs) { const sim = finesseSimulate(piece, pl.inputs); if (sim && sim.cells) return sim.cells; }
+    return pl ? finesseShapeCells(pl.shape, pl.leftmost_col) : null;
   }
-  // 最適入力の表示文字列（データの inputs_jp を優先、無ければ inputs から生成）
+  function cellsMinCol(cells) { let m = 99; for (let i = 0; i < cells.length; i++) m = Math.min(m, cells[i][1]); return m; }
+  function finessePlacementActions(pl) { return (pl && pl.inputs) ? pl.inputs.length : 0; }
+  // 最適入力の表示文字列（データの inputs_jp を優先、無ければ inputs トークンから生成）
   function finesseOptInputStr(pl) {
     if (!pl) return "";
     if (pl.inputs_jp) return pl.inputs_jp;
-    if (!pl.inputs || !pl.inputs.length) return "なし（移動不要）";
+    if (!pl.inputs || !pl.inputs.length) return "操作なし（移動不要）";
     return pl.inputs.map(function (t) { return FIN_INPUT_DISP[t] || t; }).join("、");
   }
   function spawnFinessePiece() {
@@ -1974,7 +1994,7 @@
     const pl = pls.length ? pls[Math.floor(Math.random() * pls.length)] : null;
     G._finPiece = piece;
     G._finPlacement = pl;
-    G.targetCells = pl ? finesseTargetCells(piece, pl.left_col) : null;
+    G.targetCells = pl ? finesseTargetCells(piece, pl) : null;
     spawnFinessePiece();
     updateFinesseStatus();
   }
@@ -1987,13 +2007,16 @@
     const rate = G.finesseAttempts ? Math.round(100 * G.finessePerfect / G.finesseAttempts) : 0;
     modeLabel.textContent = "フィネス 完璧 " + G.finessePerfect + "/" + G.finesseAttempts + " (" + rate + "%)";
   }
-  // 出題中の目標を常時ヒントに表示（操作説明つき）
+  // 出題中の目標を常時ヒントに表示（向き・列・最適手つき）
   function updateFinesseStatus() {
     const pl = G._finPlacement; if (!pl) return;
     const hk = keyForAction("hard");
+    const opt = finessePlacementActions(pl);
+    const orientStr = (pl.orient && pl.orient !== "—") ? "・向き[" + pl.orient + "]" : "";
+    const leftCol = G.targetCells ? cellsMinCol(G.targetCells) : pl.leftmost_col; // 着地から再算出（表示の正確性）
     flashHint(
-      "【" + G._finPiece + "ミノ】黄色の位置（左から " + (pl.left_col + 1) + " 列目／列 " + pl.cols[0] + "-" + pl.cols[1] + "）へ最少入力で置こう。" +
-      "最適 " + pl.actions + " アクション。最適手: " + finesseOptInputStr(pl) +
+      "【" + G._finPiece + "ミノ" + orientStr + "】黄色の形へ最少入力で（左端列 " + leftCol + "）。" +
+      "最適 " + opt + " アクション。最適手: " + finesseOptInputStr(pl) +
       " → ハードドロップ" + (hk ? "(" + hk + ")" : "") + "。",
       false
     );
@@ -2003,15 +2026,17 @@
     G.mode = "finesse"; G.template = null; resetCommon();
     const impl = finesseImplementedPieces();
     newFinesseTarget();
-    modeLabel.textContent = "フィネス練習（" + (impl.length ? impl.join("/") : "—") + "ミノ）";
+    modeLabel.textContent = "フィネス練習（全" + impl.length + "ミノ）";
   }
   function handleFinesseLock() {
     const a = G.active;
     const pl = G._finPlacement;
     const used = G.finesseInputs;
-    const opt = pl ? pl.actions : 0;
-    const placedLeftCol = minColOf(a.piece, a.rot, a.px, a.py);
-    const placedRight = pl ? (placedLeftCol === pl.left_col) : false;
+    const opt = finessePlacementActions(pl);
+    // 向き＋位置の判定: 設置セル集合が目標セル集合と一致するか（cellKey）。
+    const placedKey = E.cellKey(E.absCells(a.piece, a.rot, a.px, a.py));
+    const targetKey = G.targetCells ? E.cellKey(G.targetCells) : null;
+    const placedRight = (targetKey !== null && placedKey === targetKey);
     G.finesseAttempts++;
     if (placedRight && used <= opt) {
       // 完璧 → 次の問題へ
@@ -2022,12 +2047,12 @@
       newFinesseTarget();
       return;
     }
-    // 不正解（位置違い or 入力過多）→ 正解手を提示し、同じ問題で再挑戦
+    // 不正解（向き/位置違い or 入力過多）→ 正解手を提示し、同じ問題で再挑戦
     sfx("wrong");
     updateFinesseLabel();
     const why = placedRight
       ? ("入力が多い：あなた " + used + " / 最適 " + opt + " アクション")
-      : ("目標と違う位置（左から " + (placedLeftCol + 1) + " 列目に置きました）");
+      : "形・向き・位置が目標と違います";
     flashHint("✗ " + why + "。正解: " + finesseOptInputStr(pl) + " → ハードドロップ（最適 " + opt + " アクション）。同じ問題でもう一度！", true);
     respawnFinesse();
   }
@@ -2755,27 +2780,27 @@
   // デバッグ用に公開
   window.TTGAME = G;
   window.__HC = { hcEnumTilings: hcEnumTilings, hcTilingBuildable: hcTilingBuildable, pickCycleTiling: pickCycleTiling, setupByName: setupByName };
-  // フィネス検証用フック（出題を任意配置に固定して最適手の判定を確認できる）
+  // フィネス検証用フック（出題を任意配置に固定／最適手を抽象シミュレートして判定の整合を確認できる）
   window.__FIN = {
     data: function () { return FINESSE_DATA; },
     pieces: function () { return finesseImplementedPieces(); },
-    optimal: function (piece, leftCol) {
-      const d = finessePieceData(piece);
-      return d ? (d.placements || []).filter(function (p) { return p.left_col === leftCol; })[0] : null;
-    },
+    placements: function (piece) { const d = finessePieceData(piece); return d ? (d.placements || []) : []; },
+    shapeCells: function (shape, leftCol) { return finesseShapeCells(shape, leftCol); },
     state: function () {
       return { mode: G.mode, piece: G._finPiece, placement: G._finPlacement, inputs: G.finesseInputs,
         perfect: G.finessePerfect, attempts: G.finesseAttempts,
-        activePx: G.active ? G.active.px : null, activeRot: G.active ? G.active.rot : null,
-        targetMinCol: G.targetCells ? Math.min.apply(null, G.targetCells.map(function (c) { return c[1]; })) : null };
+        activePx: G.active ? G.active.px : null, activeRot: G.active ? G.active.rot : null };
     },
-    // 出題を piece/leftCol に固定（検証用）
-    setTarget: function (piece, leftCol) {
+    // 出題を (piece, orient, leftmost_col) に固定（検証用）
+    setTarget: function (piece, orient, leftCol) {
       const d = finessePieceData(piece); if (!d) return false;
-      const pl = (d.placements || []).filter(function (p) { return p.left_col === leftCol; })[0]; if (!pl) return false;
+      const pl = (d.placements || []).filter(function (p) { return p.orient === orient && p.leftmost_col === leftCol; })[0];
+      if (!pl) return false;
       G.mode = "finesse"; G.grid = E.emptyGrid(); G._finPiece = piece; G._finPlacement = pl;
-      G.targetCells = finesseTargetCells(piece, leftCol);
+      G.targetCells = finesseTargetCells(piece, pl);
       spawnFinessePiece(); updateFinesseStatus(); return true;
     },
+    simulate: function (piece, inputs) { return finesseSimulate(piece, inputs); },
+    targetCells: function (piece, pl) { return finesseTargetCells(piece, pl); },
   };
 })();
