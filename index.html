@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=34" />
+  <link rel="stylesheet" href="css/style.css?v=35" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v34</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v35</span></div>
   </header>
 
   <main class="layout">
@@ -69,30 +69,6 @@
       </div>
 
       <div class="panel">
-        <div class="panel-title">暗記モード（★はちみつ砲）</div>
-        <div class="mem-row">
-          <span class="mem-now">現在: <b id="mem-level">—</b></span>
-          <span class="mem-now"><b id="mem-summary">マスター 0 / 0 形</b></span>
-        </div>
-        <div class="io-row">
-          <button id="btn-hint-up" class="ctrl-btn small" title="ヒントを弱く＝難しく">ヒント弱く ▲Lv</button>
-          <button id="btn-hint-down" class="ctrl-btn small" title="ヒントを強く＝易しく">ヒント強く ▼Lv</button>
-        </div>
-        <div class="io-row">
-          <button id="btn-hint-demo" class="ctrl-btn small" title="お手本（濃い目標＋次のミノ表示）">お手本(Lv0)</button>
-          <button id="btn-hint-test" class="ctrl-btn small" title="目標を隠して暗記で再現">暗記テスト(Lv4)</button>
-        </div>
-        <button id="btn-drill" class="ctrl-btn primary">弱点ドリル開始（自動周回）</button>
-        <button id="btn-chain" class="ctrl-btn primary">通し練習 1→2→3（自動判定）</button>
-        <p class="note">形を組むたびヒントが1段弱まり、無表示で組めたら★マスター。お手本=濃い目標＋黄＝次に置くミノ。<br>通し練習=1巡目(左右自動)→2巡目(NEXTで理想/妥協を自動判定)→3巡目(PC/ドネイト)を連続練習。</p>
-        <details class="ctrl-sec" id="hc-debug">
-          <summary class="panel-title" style="cursor:pointer">判定デバッグ＆Pattern検証レポート</summary>
-          <button id="btn-hc-report" class="ctrl-btn small">全パターン検証レポート出力</button>
-          <div id="hc-debug-body" class="note" style="white-space:pre-wrap;font-family:monospace;font-size:11px;line-height:1.5">（はちみつ砲の練習中に表示／ボタンで全パターンの有効性を一覧）</div>
-        </details>
-      </div>
-
-      <div class="panel">
         <div class="panel-title">簡易版はちみつ砲ガイド（決定木・CONFIRMED）</div>
         <button id="btn-hcs-start" class="ctrl-btn primary">簡易版ガイド ON（開始）</button>
         <div id="hcs-status" class="note" style="white-space:pre-wrap;font-size:12px;line-height:1.55;margin:6px 0;padding:6px 8px;background:rgba(255,255,255,0.04);border-radius:6px">簡易版ガイド：OFF（「簡易版ガイド ON（開始）」で開始）</div>
@@ -105,16 +81,11 @@
           <button id="btn-hcs-reset" class="ctrl-btn small">最初から</button>
         </div>
         <button id="btn-hcs-off" class="ctrl-btn small">簡易ガイドOFF</button>
-        <p class="note">決定木に沿って次の形を背景に薄く表示。現在ミノ/ホールド/NEXTで分岐を判定（手動進行）。<b>各ノードはその段の完成盤面なので、次へ/戻る/最初からで盤面をリセットして目標形だけを表示</b>します。既存の通し練習・暗記モードとは別物（ONのときだけ重畳）。</p>
+        <p class="note">決定木に沿って次の形を背景に薄く表示。現在ミノ/ホールド/NEXTで分岐を判定（手動進行）。<b>各ノードはその段の完成盤面なので、次へ/戻る/最初からで盤面をリセットして目標形だけを表示</b>します。フリーモードに重ねて表示します（ONのときだけ）。</p>
         <details class="ctrl-sec">
           <summary class="panel-title" style="cursor:pointer">簡易版ガイドデバッグ（詳細）</summary>
           <div id="hcs-debug" class="note" style="white-space:pre-wrap;font-family:monospace;font-size:11px;line-height:1.45">（簡易版ガイドON時に表示）</div>
         </details>
-      </div>
-
-      <div class="panel">
-        <div class="panel-title">練習テンプレ</div>
-        <div id="tpl-list" class="tpl-list"></div>
       </div>
 
       <div class="panel">
@@ -177,15 +148,15 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=34"></script>
-  <script src="js/templates.js?v=34"></script>
-  <script src="js/catalog.js?v=34"></script>
-  <script src="js/catalog_data.js?v=34"></script>
-  <script src="js/fumen.js?v=34"></script>
-  <script src="js/honeycup.js?v=34"></script>
-  <script src="js/honeycup_patterns.js?v=34"></script>
-  <script src="js/honeycup_simple.js?v=34"></script>
-  <script src="js/app.js?v=34"></script>
+  <script src="js/engine.js?v=35"></script>
+  <script src="js/templates.js?v=35"></script>
+  <script src="js/catalog.js?v=35"></script>
+  <script src="js/catalog_data.js?v=35"></script>
+  <script src="js/fumen.js?v=35"></script>
+  <script src="js/honeycup.js?v=35"></script>
+  <script src="js/honeycup_patterns.js?v=35"></script>
+  <script src="js/honeycup_simple.js?v=35"></script>
+  <script src="js/app.js?v=35"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>

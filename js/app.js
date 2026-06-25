@@ -2595,6 +2595,7 @@
   // テンプレ・メニュー（折りたたみ見出し付き）
   function buildMenu() {
     const root = $("tpl-list");
+    if (!root) return; // 練習テンプレ一覧パネルは削除済み（このモードは無効）
     root.innerHTML = "";
 
     function section(title, entries, render1) {
