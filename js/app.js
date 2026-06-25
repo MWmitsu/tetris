@@ -783,6 +783,8 @@
   function pickCycleTiling(t, bag) {
     G.hcAnalysis = null;
     if (!t || !t.field) { G.hcAnalysis = { total: 0, reachable: [], reasons: {}, fail: "NO_OPERATION_DATA", bag: (bag || []).slice() }; return null; }
+    if (t.status && t.status !== "valid") { G.hcAnalysis = { total: 0, reachable: [], reasons: {}, fail: "INVALID_PATTERN(" + (t.invalidReason || "") + ")", bag: (bag || []).slice() }; return null; } // 無効/未検証は候補にしない
+
     const tilings = hcEnumTilings(t.field, t.prefill);
     if (!tilings.length) { G.hcAnalysis = { total: 0, reachable: [], reasons: {}, fail: "NO_OPERATION_DATA", bag: (bag || []).slice() }; return null; }
     const buildable = [], reasons = {};
@@ -805,9 +807,12 @@
     const phase = (G.chain && G.chain.on) ? ("通し " + G.chain.stage + "/3") : "単体";
     const next5 = (G.queue || []).slice(0, 5).join(" ");
     const L = [];
-    L.push("phase: " + phase + " ／ 形: " + t.name);
+    L.push("phase: " + phase + " ／ 形: " + t.name + "  [status:" + (t.status || "?") + (t.source ? "/" + t.source : "") + "]");
     L.push("現在ミノ: " + (G.active ? G.active.piece : "-") + "  ホールド: " + (G.hold || "-") + "  NEXT5: " + next5);
-    if (an) {
+    if (t.status && t.status !== "valid") {
+      L.push("⚠ " + (t.status === "invalid" ? "無効" : "未検証") + "パターン：練習候補外（背景ガイド・判定なし）");
+      if (t.invalidReason) L.push("理由: " + t.invalidReason);
+    } else if (an) {
       L.push("組み手順(P)総数: " + an.total + "  組める: " + an.reachable.length + "  [" + an.reachable.map(function (i) { return "P" + (i + 1); }).join(",") + "]");
       const pinfo = curPInfo();
       L.push("選択中: " + (pinfo ? ("P" + pinfo.pNo) : (curTiling() ? "ガイド順(フォールバック)" : (an.fail || "なし"))));
@@ -817,6 +822,169 @@
       L.push("（判定待ち：ミノが配られると判定します）");
     }
     el.textContent = L.join("\n");
+  }
+  // ===== Pattern DB 検証・管理（status / 有効性 / 無効理由 / 手動登録 / 検証レポート） =====
+  // ミノ形状テーブル（4セル→ミノ種）
+  const TT_PIECE_SHAPES = (function () {
+    const m = {};
+    ["I", "O", "T", "S", "Z", "J", "L"].forEach(function (L) {
+      E.PIECES[L].states.forEach(function (st) {
+        const mr = Math.min.apply(null, st.map(function (c) { return c[0]; })), mc = Math.min.apply(null, st.map(function (c) { return c[1]; }));
+        const k = st.map(function (c) { return [c[0] - mr, c[1] - mc]; }).sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; }).map(function (c) { return c[0] + "," + c[1]; }).join("|");
+        m[k] = L;
+      });
+    });
+    return m;
+  })();
+  function tetroTypeOf(cells) {
+    if (cells.length !== 4) return null;
+    const mr = Math.min.apply(null, cells.map(function (c) { return c[0]; })), mc = Math.min.apply(null, cells.map(function (c) { return c[1]; }));
+    const k = cells.map(function (c) { return [c[0] - mr, c[1] - mc]; }).sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; }).map(function (c) { return c[0] + "," + c[1]; }).join("|");
+    return TT_PIECE_SHAPES[k] || null;
+  }
+  function patternCategory(name) {
+    if (/理想/.test(name)) return "ideal";
+    if (/妥協/.test(name)) return "compromise";
+    if (/パフェ|PC|パーフェクト/.test(name)) return "pc";
+    if (/REN|連続/.test(name)) return "ren";
+    if (/ドネイト|donate/i.test(name)) return "donate";
+    return "base";
+  }
+  function patternMirror(name) { return /反転|右/.test(name); }
+  function patternPhase(name) {
+    if (/1巡目|基本形①/.test(name)) return 1;
+    if (/2巡目|基本形②|理想|妥協形\s*2/.test(name)) return 2;
+    if (/3巡目|パフェ|ドネイト|REN|火力|基本形③/.test(name)) return 3;
+    return 0;
+  }
+  function coloredCellsOf(field) {
+    const a = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) { const v = field[r][c]; if (v && !SETUP_GRAYS[v]) a.push([r, c]); }
+    return a;
+  }
+  // 同色4連結群ごとに「その色のミノ型として妥当か」を検証（無効の原因＝Tが実はJ形、等を特定）
+  function analyzeFieldPieces(field) {
+    const vis = []; for (let i = 0; i < ROWS; i++) vis.push(new Array(COLS).fill(false));
+    const groups = [], bad = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const col = field[r][c];
+      if (!col || SETUP_GRAYS[col] || vis[r][c]) continue;
+      const expected = COLOR_TO_PIECE[col] || "?";
+      const stk = [[r, c]], comp = [];
+      while (stk.length) {
+        const t = stk.pop(), y = t[0], x = t[1];
+        if (y < 0 || y >= ROWS || x < 0 || x >= COLS || vis[y][x] || field[y][x] !== col) continue;
+        vis[y][x] = true; comp.push([y, x]); stk.push([y + 1, x], [y - 1, x], [y, x + 1], [y, x - 1]);
+      }
+      const actual = tetroTypeOf(comp);
+      const g = { expected: expected, actual: actual, size: comp.length, cells: comp.map(function (p) { return [p[0], p[1]]; }) };
+      groups.push(g);
+      if (!(comp.length === 4 && actual === expected)) bad.push(g);
+    }
+    return { groups: groups, bad: bad };
+  }
+  // タイリングが占有を過不足なく7種1個ずつで再現するか
+  function tilingReconstructs(til, occSet) {
+    const cells = new Set(); const types = {};
+    til.forEach(function (g) { g.cells.forEach(function (c) { cells.add(c[0] + "," + c[1]); }); types[g.piece] = (types[g.piece] || 0) + 1; });
+    if (Object.keys(types).some(function (k) { return types[k] > 1; })) return false;
+    if (cells.size !== occSet.size) return false;
+    let all = true; occSet.forEach(function (k) { if (!cells.has(k)) all = false; }); return all;
+  }
+  // 1パターンの検証 → status/invalidReason/各種メタを返す
+  function validateSetup(t) {
+    const info = { id: t.id, name: t.name, phase: patternPhase(t.name), category: patternCategory(t.name), mirror: patternMirror(t.name), source: t.source || "fumen", sourceFumen: t.src || "" };
+    if (t.statusOverride) { info.status = t.statusOverride; info.invalidReason = t.invalidReason || ""; info.verifiedAt = t.verifiedAt || ""; return info; }
+    if (!t.field) { info.status = "unverified"; info.invalidReason = "盤面データなし"; return info; }
+    const occ = coloredCellsOf(t.field); info.cells = occ.length; info.pieces = occ.length / 4;
+    const occSet = new Set(occ.map(function (c) { return c[0] + "," + c[1]; }));
+    if (occ.length === 0) { info.status = "unverified"; info.invalidReason = "色ミノなし（参照図）"; return info; }
+    if (occ.length % 4 !== 0) { info.status = "invalid"; info.invalidReason = "色セル数が4の倍数でない(" + occ.length + "セル＝消去後の断片の可能性)"; return info; }
+    const ap = analyzeFieldPieces(t.field);
+    info.badPieces = ap.bad.map(function (b) { return { expected: b.expected, actual: b.actual, size: b.size, cells: b.cells.map(function (c) { return c[0] + "," + c[1]; }) }; });
+    const tilings = hcEnumTilings(t.field, t.prefill); info.totalTilings = tilings.length;
+    let vt = 0; tilings.forEach(function (til) { if (tilingReconstructs(til, occSet)) vt++; }); info.validTilings = vt;
+    // 有効性の最優先判定: 占有が7種1個ずつで組めるか（実機ガイドはタイリングを使うため、fumen色の不整合は問題にならない）
+    if (vt >= 1) { info.status = "valid"; return info; }
+    // 無効: 理由を特定（fumen色の不正ミノがあればそれを、無ければ占有不整合）
+    info.status = "invalid";
+    if (ap.bad.length) {
+      const b = ap.bad[0];
+      info.invalidReason = "ミノ" + b.expected + "が" + b.expected + "形でない（実形=" + (b.actual || ("不明/" + b.size + "セル")) + "、セル " + b.cells.map(function (c) { return "(" + c[0] + "," + c[1] + ")"; }).join("") + "）";
+    } else {
+      info.invalidReason = "7種1個ずつで組める手順が存在しない（占有が不整合）";
+    }
+    return info;
+  }
+  // 手動座標パターン（source:"manual"）→ テンプレ化（fumen URL不要）。
+  function manualToTemplate(m) {
+    const field = E.emptyGrid();
+    const prefill = (m.prefill && m.prefill.length) ? E.emptyGrid() : null;
+    if (m.prefill) m.prefill.forEach(function (c) { field[c[0]][c[1]] = SETUP_GRAY; if (prefill) prefill[c[0]][c[1]] = SETUP_GRAY; });
+    const guide = [];
+    (m.pieces || []).forEach(function (p) {
+      const col = (E.PIECES[p.type] || {}).color || SETUP_GRAY;
+      p.cells.forEach(function (c) { field[c[0]][c[1]] = col; });
+      guide.push({ piece: p.type, cells: p.cells.map(function (c) { return [c[0], c[1]]; }), kind: p.spin ? "spin" : "drop" });
+    });
+    return {
+      id: m.id, name: m.name, group: "はちみつ砲(手動)", type: "field", field: field, prefill: prefill,
+      setup: true, guide: guide, segPieces: (m.pieces || []).map(function (p) { return { piece: p.type, cells: p.cells }; }),
+      source: "manual", statusOverride: m.status, invalidReason: m.invalidReason, verifiedAt: m.verifiedAt, desc: m.desc || "手動登録パターン", src: ""
+    };
+  }
+  function registerManualPatterns() {
+    const list = window.TT_MANUAL_PATTERNS;
+    if (!Array.isArray(list)) return 0;
+    let n = 0;
+    list.forEach(function (m) {
+      if (!m || !m.id || setupById(m.id)) return; // 重複idはスキップ
+      const t = manualToTemplate(m);
+      const v = validateSetup(t);
+      t.status = v.status; t.invalidReason = t.invalidReason || v.invalidReason || ""; t.category = v.category; t.mirror = v.mirror; t.phase = v.phase; t.validation = v;
+      SETUP_TEMPLATES.push(t); n++;
+    });
+    return n;
+  }
+  // 全パターン検証 → メタ付与（status/invalidReason/category/mirror/phase）。練習候補のvalidフィルタに使用。
+  function validateAllSetups() {
+    registerManualPatterns();
+    SETUP_TEMPLATES.forEach(function (t) {
+      const v = validateSetup(t);
+      t.status = v.status; t.invalidReason = v.invalidReason || ""; t.category = v.category; t.mirror = v.mirror; t.phase = v.phase; t.source = v.source; t.validation = v;
+    });
+  }
+  validateAllSetups();
+  // 検証レポート（開発者確認用）：全パターンの有効性一覧
+  function buildValidationReport() {
+    return SETUP_TEMPLATES.map(function (t) {
+      const v = t.validation || validateSetup(t);
+      return {
+        patternId: t.id, name: t.name, phase: v.phase, category: v.category, mirror: v.mirror, source: v.source,
+        status: v.status, total手順: v.totalTilings != null ? v.totalTilings : "-", 有効手順: v.validTilings != null ? v.validTilings : "-",
+        色セル数: v.cells != null ? v.cells : "-", ミノ数: v.pieces != null ? v.pieces : "-",
+        不正ミノ: (v.badPieces && v.badPieces.length) ? v.badPieces.map(function (b) { return b.expected + "→" + (b.actual || "?") + "(" + b.cells.join(" ") + ")"; }).join(" / ") : "-",
+        invalidReason: v.invalidReason || ""
+      };
+    });
+  }
+  function showValidationReport() {
+    const rep = buildValidationReport();
+    try { console.log("=== はちみつ砲 Pattern検証レポート ===", JSON.parse(JSON.stringify(rep))); } catch (e) {}
+    const el = $("hc-debug-body");
+    if (el) {
+      const cnt = { valid: 0, invalid: 0, unverified: 0 };
+      rep.forEach(function (r) { cnt[r.status] = (cnt[r.status] || 0) + 1; });
+      const lines = ["Pattern検証レポート: valid " + cnt.valid + " / invalid " + cnt.invalid + " / unverified " + cnt.unverified + "（詳細はDevToolsコンソール）", ""];
+      rep.forEach(function (r) {
+        const mark = r.status === "valid" ? "✓" : (r.status === "invalid" ? "✗" : "?");
+        lines.push(mark + " [" + r.status + "] " + r.name + " (P" + r.phase + "/" + r.category + (r.mirror ? "/mirror" : "") + ")");
+        lines.push("   手順 " + r.有効手順 + "/" + r.total手順 + "  色" + r.色セル数 + "  " + (r.invalidReason ? ("理由:" + r.invalidReason) : ""));
+      });
+      const det = $("hc-debug"); if (det) det.open = true;
+      el.textContent = lines.join("\n");
+    }
+    return rep;
   }
   function honeycupChainStart() {
     const t1 = setupByName(CHAIN_STEPS[0].name);
@@ -1344,8 +1512,9 @@
     else if (!boardEmpty()) G.grid = E.emptyGrid(); // PCでない完了は次の反復のため盤面をクリア
     G.stepIndex = 0; G.mistake = false; G.lastRotation = false; G.canHold = true; G.hold = null;
     G.setupTiling = null; G.setupPInfo = null;
-    const judgeP = !chainActive() && G.template && G.template.setup && tplType() === "field" && !!G.template.field;
-    if (judgeP) { G.bag = []; G.queue = []; ensureQueue(6); }
+    G.invalidForm = !!(G.template && G.template.setup && tplType() === "field" && G.template.status && G.template.status !== "valid");
+    const judgeP = !chainActive() && G.template && G.template.setup && tplType() === "field" && !!G.template.field && G.template.status === "valid";
+    if (judgeP || G.invalidForm) { G.bag = []; G.queue = []; ensureQueue(6); }
     else if (G.template && G.template.setup) feedGuideBag(); // 反復時もガイド順を再供給（必ず組める）
     flashHint((lead ? lead + " " : "") + "▶ " + G.cycles + "巡目！", false);
     if (tplType() === "fsteps") { setFStep(0); return; }
@@ -1427,11 +1596,12 @@
     G.drill = false;
     if (pendingChainBag) { pendingChainBag = null; } // 旧:固定供給。現在はガイド順供給(feedGuideBag)に統一
     applyTemplatePrefill();
-    G.setupTiling = null; G.setupPInfo = null;
-    // 単体のはちみつ砲形(field型セットアップ)：フリー同様のランダム7-bag＋「組み手順(P)自動判定」を有効化
-    const judgeP = !chainActive() && t.setup && t.type === "field" && !!t.field;
-    if (judgeP) { G.bag = []; G.queue = []; ensureQueue(6); }
-    else feedGuideBag(); // それ以外は必ず組めるガイド順のミノを供給
+    G.setupTiling = null; G.setupPInfo = null; G.hcAnalysis = null;
+    // 無効/未検証パターンは練習候補外（判定・背景ガイドなし）。validのみP判定を有効化。
+    G.invalidForm = !!(t.setup && t.type === "field" && t.status && t.status !== "valid");
+    const judgeP = !chainActive() && t.setup && t.type === "field" && !!t.field && t.status === "valid";
+    if (judgeP || G.invalidForm) { G.bag = []; G.queue = []; ensureQueue(6); } // validは判定用ランダム、invalidは通常ランダム
+    else feedGuideBag(); // それ以外（未検証でないvalid設定で判定不可など）はガイド順を供給
     if (t.setup) {
       G.hintLevel = clampHint(masteryOf(t.id).lvl);
       G.hintShownAt = (typeof performance !== "undefined" ? performance.now() : 0);
@@ -1452,7 +1622,8 @@
     }
     modeLabel.textContent = (t.setup ? (chainActive() ? "通し: " : "暗記: ") : "テンプレ: ") + t.name;
     if (t.setup) {
-      flashHint(setupHintText(t), false);
+      if (G.invalidForm) flashHint("⚠ 無効パターン【" + t.name + "】：" + (t.invalidReason || "検証で無効") + " ／ 練習対象外（背景ガイド・判定なし）。", true);
+      else flashHint(setupHintText(t), false);
       updateMasteryUI();
     } else {
       const srcNote = t.src ? "（出典: " + t.src + "）" : "";
@@ -1484,7 +1655,8 @@
     resetCommon();
     applyTemplatePrefill();
     G.setupTiling = null; G.setupPInfo = null;
-    const judgeP = !chainActive() && G.template.setup && tplType() === "field" && !!G.template.field;
+    G.invalidForm = !!(G.template.setup && tplType() === "field" && G.template.status && G.template.status !== "valid");
+    const judgeP = !chainActive() && G.template.setup && tplType() === "field" && !!G.template.field && G.template.status === "valid";
     if (chainActive()) {
       // 通し練習中のリセット：この巡を最初からやり直し（土台＋フリー同様の7-bag）
       G.bag = []; G.queue = []; ensureQueue(6);
@@ -1713,7 +1885,7 @@
     }
     // 完成形テンプレ(field型)の目標: 全体のうすい色オーバーレイ
     // 収録セットアップ(暗記モード)はヒントレベルで強度を変える: 0お手本/1カラー/2シルエット/3チラ見/4暗記テスト
-    if (settings.showHint && G.mode === "template" && tplType() === "field" && G.template && G.template.field) {
+    if (settings.showHint && G.mode === "template" && tplType() === "field" && G.template && G.template.field && !G.invalidForm) {
       const f = G.template.field;
       const setup = !!G.template.setup;
       let drawAlpha = 0.28, silhouette = false, show = true;
@@ -2126,6 +2298,7 @@
     if ($("btn-hint-test")) $("btn-hint-test").addEventListener("click", function () { setHintLevel(HINT_MAX); });
     if ($("btn-drill")) $("btn-drill").addEventListener("click", startDrill);
     if ($("btn-chain")) $("btn-chain").addEventListener("click", honeycupChainStart);
+    if ($("btn-hc-report")) $("btn-hc-report").addEventListener("click", showValidationReport);
     updateMasteryUI();
 
     // テンプレ一覧（手順型 built-in + カタログ + カスタム）
@@ -2221,13 +2394,17 @@
       return wrap;
     }
 
-    // 0) 収録セットアップ（はちみつ砲ほか・テト譜由来の完成形群）を最上部に。習熟度バッジ付き。
-    SETUP_GROUPS.forEach(function (gname) {
+    // 0) 収録セットアップ（はちみつ砲ほか・テト譜/手動由来の完成形群）を最上部に。習熟度＋検証statusバッジ付き。
+    const allSetupGroups = [];
+    SETUP_TEMPLATES.forEach(function (t) { if (allSetupGroups.indexOf(t.group) < 0) allSetupGroups.push(t.group); });
+    allSetupGroups.forEach(function (gname) {
       const entries = SETUP_TEMPLATES.filter(function (t) { return t.group === gname; });
       section("★ " + gname, entries, function (t) {
         const m = masteryOf(t.id);
-        const badge = m.mastered ? "★マスター" : ("暗記Lv" + (m.lvl || 0) + (t.guide ? "・手順◎" : ""));
-        const cls = m.mastered ? "ok" : (m.clears ? "rec" : "unset");
+        const st = t.status || "valid";
+        const stTag = st === "invalid" ? " ⚠無効" : (st === "unverified" ? " ?未検証" : "");
+        const badge = (m.mastered ? "★マスター" : ("暗記Lv" + (m.lvl || 0) + (t.guide ? "・手順◎" : ""))) + stTag;
+        const cls = st === "invalid" ? "unset" : (m.mastered ? "ok" : (m.clears ? "rec" : "unset"));
         return btn(t.name, badge, cls, function () { startTemplate(t.id); });
       });
     });
