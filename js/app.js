@@ -91,7 +91,7 @@
 
   // ---- ゲーム状態 ----
   const G = {
-    mode: "free",          // free | template | sprint | finesse（finesse は G.finesseTimed で20秒モード）
+    mode: "free",          // free | template | sprint | ultra | finesse（finesse は G.finesseTimed で20秒モード）
     grid: E.emptyGrid(),
     active: null,          // {piece,rot,px,py}
     hold: null,
@@ -1703,6 +1703,7 @@
       const empty = G.grid.every(function (row) { return row.every(function (c) { return !c; }); });
       if (empty) { G.pcs++; msg = (msg ? msg + " " : "") + "パーフェクトクリア！🎉"; }
     }
+    if (G.mode === "ultra") ultraAddScore(spin, cl.cleared, cl.cleared > 0 && boardEmpty()); // スコア加算
     clearSfx(spin, cl.cleared, boardEmpty());
     G.active = null;
     // 次へ
@@ -1791,6 +1792,7 @@
     G.buildSlot = null;
     G.finesseInputs = 0; G.finessePieces = 0; G.finessePerfect = 0; G.finesseAttempts = 0; G._finPiece = null;
     G.finesseTimed = false; G.timerStart = null; G.timedDone = false; G.sprintGoal = SPRINT_GOAL; // タイムアタック状態
+    G.score = 0; G.combo = -1; G.b2b = false; // Ultraスコア状態（REN/Back-to-Back）
     setTa(""); // ライブ表示クリア（フリー/テンプレ等では非表示。各モード開始時に再設定）
     clearHeld();
     // リマップ取得モードが残っていると入力が吸われ続けるので解除
@@ -1910,6 +1912,7 @@
   // inputLoop が毎フレーム表示更新と20秒終了判定を行う。
   const SPRINT_GOAL = 40;
   const OPT20_MS = 20000;
+  const ULTRA_MS = 180000; // Ultra = 3分スコアアタック（PPT2準拠）
   // 時間表記は「○分○○秒○○」（秒・センチ秒は2桁ゼロ詰め）。
   function fmtTime(ms) {
     if (ms == null || ms < 0) ms = 0;
@@ -1923,12 +1926,12 @@
   }
   function startTimerIfNeeded() {
     if (G.timedDone) return;
-    if (G.mode === "sprint" || (G.mode === "finesse" && G.finesseTimed)) {
+    if (G.mode === "sprint" || G.mode === "ultra" || (G.mode === "finesse" && G.finesseTimed)) {
       if (G.timerStart == null) G.timerStart = (typeof performance !== "undefined" ? performance.now() : 0);
     }
   }
-  function bestKey(mode) { return mode === "sprint" ? "tt_sprint_best_ms" : "tt_opt20_best_n"; }
-  function lastKey(mode) { return mode === "sprint" ? "tt_sprint_last_ms" : "tt_opt20_last_n"; }
+  function bestKey(mode) { return mode === "sprint" ? "tt_sprint_best_ms" : mode === "ultra" ? "tt_ultra_best_n" : "tt_opt20_best_n"; }
+  function lastKey(mode) { return mode === "sprint" ? "tt_sprint_last_ms" : mode === "ultra" ? "tt_ultra_last_n" : "tt_opt20_last_n"; }
   function loadBest(mode) { try { const v = localStorage.getItem(bestKey(mode)); return v == null ? null : Number(v); } catch (e) { return null; } }
   function saveBest(mode, val) { try { localStorage.setItem(bestKey(mode), String(val)); } catch (e) {} }
   function loadLast(mode) { try { const v = localStorage.getItem(lastKey(mode)); return v == null ? null : Number(v); } catch (e) { return null; } }
@@ -1941,6 +1944,10 @@
   function opt20RecLine() {
     const last = loadLast("opt20"), best = loadBest("opt20");
     return "前回 " + (last != null ? last + "問" : "—") + " ／ ベスト " + (best != null ? best + "問" : "—");
+  }
+  function ultraRecLine() {
+    const last = loadLast("ultra"), best = loadBest("ultra");
+    return "前回 " + (last != null ? last + "点" : "—") + " ／ ベスト " + (best != null ? best + "点" : "—");
   }
 
   // 40LINE スプリント（ぷよテト風: 40ライン消去までのタイム計測）。フリー同様7-bag＋通常消去。
@@ -1968,6 +1975,44 @@
     setTa("🏁 " + fmtTime(ms));
     flashHint("🏁 40ライン クリア！ 今回 " + fmtTime(ms) + (newRec ? "　🎉NEW RECORD！" : "") + "　／ ベスト " + fmtTime(loadBest("sprint")) + "　リセット(R)でもう一度。", false);
     render();
+  }
+
+  // Ultra（3分スコアアタック・PPT2準拠）。フリー同様7-bag＋通常消去。スコアはafterLockCommonで加算。
+  function startUltra() {
+    if (G.chain) G.chain.on = false;
+    G.mode = "ultra"; G.template = null; resetCommon();
+    ensureQueue(6); spawnFromQueue();
+    modeLabel.textContent = "Ultra 3分スコアアタック";
+    setTa("⏱ 残り" + fmtTime(ULTRA_MS) + "  スコア" + padL(0, 6));
+    flashHint("3分間でスコアを稼ごう（テトリス・T-Spin・REN・B2B・パーフェクトクリアで高得点）。最初のミノを動かすと計測開始。　" + ultraRecLine(), false);
+    render();
+  }
+  function finishUltra() {
+    G.timedDone = true; G.active = null; G.over = true; G.targetCells = null;
+    const n = G.score || 0;
+    const prev = loadBest("ultra");
+    const newRec = (prev == null || n > prev);
+    saveLast("ultra", n);
+    if (newRec) saveBest("ultra", n);
+    sfx("perfect");
+    setTa("⏱ 終了  スコア " + n);
+    flashHint("⏱ 3分終了！ 今回 " + n + " 点 / " + G.lines + " ライン" + (newRec ? "　🎉NEW RECORD！" : "") + "　／ ベスト " + loadBest("ultra") + " 点　リセット(R)でもう一度。", false);
+    render();
+  }
+  // Ultraのスコア加算（ガイドライン準拠の簡易版: 消去/スピン/B2B/REN/PC）。afterLockCommonから ultra時のみ呼ぶ。
+  function ultraAddScore(spin, lines, isPC) {
+    let base;
+    if (spin === "full") base = (lines === 0 ? 400 : lines === 1 ? 800 : lines === 2 ? 1200 : 1600);
+    else if (spin === "mini") base = (lines === 0 ? 100 : lines === 1 ? 200 : 400);
+    else base = ([0, 100, 300, 500, 800][lines] || 0);
+    const difficult = (lines === 4) || ((spin === "full" || spin === "mini") && lines > 0);
+    let pts = base;
+    if (lines > 0 && difficult && G.b2b) pts = Math.floor(base * 1.5); // Back-to-Back ×1.5
+    if (lines > 0) { G.combo = (G.combo < 0 ? 0 : G.combo + 1); if (G.combo > 0) pts += 50 * G.combo; } // REN
+    else { G.combo = -1; }
+    if (isPC) pts += (lines === 1 ? 800 : lines === 2 ? 1200 : lines === 3 ? 1800 : 2000); // パーフェクトクリア
+    G.score = (G.score || 0) + pts;
+    if (lines > 0) G.b2b = difficult;
   }
 
   // 最適化20秒（20秒で何問正解できるか）。最適化モードの時間制限版。
@@ -1999,6 +2044,11 @@
       const ms = G.timerStart != null ? (now - G.timerStart) : 0;
       const left = Math.max(0, (G.sprintGoal || SPRINT_GOAL) - G.lines);
       setTa("⏱ " + fmtTime(ms) + "  残り" + padL(left, 2));
+    } else if (G.mode === "ultra") {
+      const elapsed = G.timerStart != null ? (now - G.timerStart) : 0;
+      const remain = Math.max(0, ULTRA_MS - elapsed);
+      setTa("⏱ 残り" + fmtTime(remain) + "  スコア" + padL(G.score || 0, 6));
+      if (G.timerStart != null && elapsed >= ULTRA_MS) finishUltra();
     } else if (G.mode === "finesse" && G.finesseTimed) {
       const elapsed = G.timerStart != null ? (now - G.timerStart) : 0;
       const remain = Math.max(0, OPT20_MS - elapsed);
@@ -2382,8 +2432,8 @@
           G.lastGravity = now;
         }
       }
-      // タイムアタックの表示更新＆20秒終了判定（最初の操作で計測開始済み）
-      if (G.mode === "sprint" || (G.mode === "finesse" && G.finesseTimed)) updateTimedDisplay(now);
+      // タイムアタックの表示更新＆終了判定（最初の操作で計測開始済み）
+      if (G.mode === "sprint" || G.mode === "ultra" || (G.mode === "finesse" && G.finesseTimed)) updateTimedDisplay(now);
     } catch (e) { /* 1フレームの例外でループを止めない（ゲームパッド/長押しの永久停止を防ぐ） */ }
     requestAnimationFrame(inputLoop);
   }
@@ -2628,6 +2678,7 @@
     if (G.mode === "free") startFree();
     else if (G.mode === "template") resetTemplate();
     else if (G.mode === "sprint") startSprint();
+    else if (G.mode === "ultra") startUltra();
     else if (G.mode === "finesse") { if (G.finesseTimed) startFinesse20(); else startFinesse(); }
     else startFree();
   }
@@ -2637,6 +2688,7 @@
     // モードボタン
     $("btn-free").addEventListener("click", startFree);
     if ($("btn-sprint")) $("btn-sprint").addEventListener("click", startSprint);
+    if ($("btn-ultra")) $("btn-ultra").addEventListener("click", startUltra);
     $("btn-finesse").addEventListener("click", startFinesse);
     if ($("btn-finesse-20s")) $("btn-finesse-20s").addEventListener("click", startFinesse20);
     $("btn-reset").addEventListener("click", doReset);
@@ -2911,5 +2963,7 @@
     targetCells: function (piece, pl) { return finesseTargetCells(piece, pl); },
     finishSprint: function () { return finishSprint(); },
     finishFinesse20: function () { return finishFinesse20(); },
+    finishUltra: function () { return finishUltra(); },
+    scoreTest: function (spin, lines, isPC) { ultraAddScore(spin, lines, !!isPC); return { score: G.score, b2b: G.b2b, combo: G.combo }; },
   };
 })();
