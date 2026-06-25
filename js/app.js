@@ -1101,6 +1101,16 @@
     });
     ctx.restore();
   }
+  // ノード遷移時に盤面をクリアし、その段の目標形（node.grid）をきれいに表示する。
+  // 各nodeは「その段階の完成盤面（土台G＋ミノ）」の独立スナップショットのため、前段の設置ブロックを残すと
+  // 新ノードのゴーストと噛み合わず背景が崩れる。フリー中のみクリア（既存モードには影響しない）。
+  function hcSimpleClearBoard() {
+    if (!hcSimple.on || G.mode !== "free") return;
+    G.grid = E.emptyGrid();
+    G.over = false; G.hold = null; G.canHold = true;
+    G.bag = []; G.queue = [];
+    ensureQueue(6); spawnFromQueue();
+  }
   function hcSimpleStart() {
     if (!hcSimple.tree) { flashHint("簡易版ガイドのデータが読み込めませんでした（簡易版モードのみ無効）。", true); return; }
     if (G.chain) G.chain.on = false;
@@ -1112,7 +1122,7 @@
     updateHcSimpleDebug(); render();
   }
   function hcSimpleOff() { hcSimple.on = false; updateHcSimpleDebug(); render(); flashHint("簡易版ガイド OFF（既存挙動に戻ります）。", false); }
-  function hcSimpleReset() { if (!hcSimple.tree) return; hcSimple.currentId = hcSimple.tree.start; hcSimple.selectedNextId = null; hcSimple.history = []; updateHcSimpleDebug(); render(); }
+  function hcSimpleReset() { if (!hcSimple.tree) return; hcSimple.currentId = hcSimple.tree.start; hcSimple.selectedNextId = null; hcSimple.history = []; hcSimple.lastDecision = null; hcSimpleClearBoard(); updateHcSimpleStatus(); updateHcSimpleDebug(); render(); }
   function hcSimpleNext() {
     if (!hcSimple.on || !hcSimple.tree) return;
     const node = getHoneycupSimpleNodeById(hcSimple.tree, hcSimple.currentId);
@@ -1122,6 +1132,7 @@
     if (!to) { flashHint("今の手駒（現在ミノ／ホールド／NEXT）では分岐が確定しません。条件を満たすミノ順を待つか『再抽選』を。", false); updateHcSimpleStatus(); updateHcSimpleDebug(); return; }
     hcSimple.history.push(hcSimple.currentId); // 「戻る」用に履歴を積む
     hcSimple.currentId = to; hcSimple.selectedNextId = null;
+    hcSimpleClearBoard(); // この段の目標形をきれいに表示（前段の設置ブロックを消す）
     updateHcSimpleStatus(); updateHcSimpleDebug(); render();
   }
   function hcSimpleBack() {
@@ -1130,7 +1141,8 @@
     const prev = hcSimple.history.pop();
     if (prev) hcSimple.currentId = prev;
     hcSimple.selectedNextId = null;
-    updateHcSimpleDebug(); render();
+    hcSimpleClearBoard(); // この段の目標形をきれいに表示
+    updateHcSimpleStatus(); updateHcSimpleDebug(); render();
   }
   function hcSimpleReroll() {
     if (!hcSimple.on || !hcSimple.tree) return;

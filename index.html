@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=33" />
+  <link rel="stylesheet" href="css/style.css?v=34" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v33</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v34</span></div>
   </header>
 
   <main class="layout">
@@ -105,7 +105,7 @@
           <button id="btn-hcs-reset" class="ctrl-btn small">最初から</button>
         </div>
         <button id="btn-hcs-off" class="ctrl-btn small">簡易ガイドOFF</button>
-        <p class="note">決定木に沿って次の形を背景に薄く表示。現在ミノ/ホールド/NEXTで分岐を判定（手動進行）。既存の通し練習・暗記モードとは別物（ONのときだけ重畳）。</p>
+        <p class="note">決定木に沿って次の形を背景に薄く表示。現在ミノ/ホールド/NEXTで分岐を判定（手動進行）。<b>各ノードはその段の完成盤面なので、次へ/戻る/最初からで盤面をリセットして目標形だけを表示</b>します。既存の通し練習・暗記モードとは別物（ONのときだけ重畳）。</p>
         <details class="ctrl-sec">
           <summary class="panel-title" style="cursor:pointer">簡易版ガイドデバッグ（詳細）</summary>
           <div id="hcs-debug" class="note" style="white-space:pre-wrap;font-family:monospace;font-size:11px;line-height:1.45">（簡易版ガイドON時に表示）</div>
@@ -177,15 +177,15 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=33"></script>
-  <script src="js/templates.js?v=33"></script>
-  <script src="js/catalog.js?v=33"></script>
-  <script src="js/catalog_data.js?v=33"></script>
-  <script src="js/fumen.js?v=33"></script>
-  <script src="js/honeycup.js?v=33"></script>
-  <script src="js/honeycup_patterns.js?v=33"></script>
-  <script src="js/honeycup_simple.js?v=33"></script>
-  <script src="js/app.js?v=33"></script>
+  <script src="js/engine.js?v=34"></script>
+  <script src="js/templates.js?v=34"></script>
+  <script src="js/catalog.js?v=34"></script>
+  <script src="js/catalog_data.js?v=34"></script>
+  <script src="js/fumen.js?v=34"></script>
+  <script src="js/honeycup.js?v=34"></script>
+  <script src="js/honeycup_patterns.js?v=34"></script>
+  <script src="js/honeycup_simple.js?v=34"></script>
+  <script src="js/app.js?v=34"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>
