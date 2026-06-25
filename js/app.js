@@ -25,7 +25,8 @@
   const $ = function (id) { return document.getElementById(id); };
   const statLines = $("stat-lines"), statPieces = $("stat-pieces"), statPc = $("stat-pc");
   const statTspin = $("stat-tspin"), statCycle = $("stat-cycle");
-  const hintBox = $("hint-text"), modeLabel = $("mode-label");
+  const hintBox = $("hint-text"), modeLabel = $("mode-label"), taTime = $("ta-time");
+  function setTa(t) { if (taTime) taTime.textContent = (t == null ? "" : t); }
 
   // ---- 設定 ----
   const settings = {
@@ -1790,6 +1791,7 @@
     G.buildSlot = null;
     G.finesseInputs = 0; G.finessePieces = 0; G.finessePerfect = 0; G.finesseAttempts = 0; G._finPiece = null;
     G.finesseTimed = false; G.timerStart = null; G.timedDone = false; G.sprintGoal = SPRINT_GOAL; // タイムアタック状態
+    setTa(""); // ライブ表示クリア（フリー/テンプレ等では非表示。各モード開始時に再設定）
     clearHeld();
     // リマップ取得モードが残っていると入力が吸われ続けるので解除
     captureKeyAction = null; capturePadAction = null;
@@ -1908,7 +1910,17 @@
   // inputLoop が毎フレーム表示更新と20秒終了判定を行う。
   const SPRINT_GOAL = 40;
   const OPT20_MS = 20000;
-  function fmtTime(ms) { return ((ms == null ? 0 : ms) / 1000).toFixed(2); }
+  // 時間表記は「○分○○秒○○」（秒・センチ秒は2桁ゼロ詰め）。
+  function fmtTime(ms) {
+    if (ms == null || ms < 0) ms = 0;
+    const totalCs = Math.floor(ms / 10);
+    const cs = totalCs % 100;
+    const totalSec = Math.floor(totalCs / 100);
+    const s = totalSec % 60;
+    const m = Math.floor(totalSec / 60);
+    const p2 = function (n) { return String(n).padStart(2, "0"); };
+    return m + "分" + p2(s) + "秒" + p2(cs);
+  }
   function startTimerIfNeeded() {
     if (G.timedDone) return;
     if (G.mode === "sprint" || (G.mode === "finesse" && G.finesseTimed)) {
@@ -1920,14 +1932,17 @@
   function saveBest(mode, val) { try { localStorage.setItem(bestKey(mode), String(val)); } catch (e) {} }
 
   // 40LINE スプリント（ぷよテト風: 40ライン消去までのタイム計測）。フリー同様7-bag＋通常消去。
+  // ライブ表示の整形（幅が変わらないよう space-pad＋等幅。盤面下の #ta-time に出す）。
+  function padL(s, n) { s = String(s); return s.length >= n ? s : " ".repeat(n - s.length) + s; }
   function startSprint() {
     if (G.chain) G.chain.on = false;
     G.mode = "sprint"; G.template = null; resetCommon();
     G.sprintGoal = SPRINT_GOAL;
     ensureQueue(6); spawnFromQueue();
     const best = loadBest("sprint");
-    modeLabel.textContent = "40LINE  0.00s  残り" + SPRINT_GOAL;
-    flashHint("40ライン消すまでのタイムを計測。最初の操作で計測開始、ハードドロップで素早く積もう。" + (best != null ? "（ベスト " + fmtTime(best) + "s）" : ""), false);
+    modeLabel.textContent = "40LINE スプリント";
+    setTa("⏱ " + fmtTime(0) + "  残り" + padL(SPRINT_GOAL, 2));
+    flashHint("40ライン消すまでのタイムを計測。最初のミノを動かすと計測開始、ハードドロップで素早く積もう。" + (best != null ? "（ベスト " + fmtTime(best) + "）" : ""), false);
     render();
   }
   function finishSprint() {
@@ -1938,8 +1953,8 @@
     const newRec = (prev == null || ms < prev);
     if (newRec) saveBest("sprint", ms);
     sfx("perfect");
-    modeLabel.textContent = "40LINE 完了 " + fmtTime(ms) + "s";
-    flashHint("🏁 40ライン クリア！ タイム " + fmtTime(ms) + "s" + (newRec ? "（自己ベスト更新！）" : "（ベスト " + fmtTime(prev) + "s）") + "　リセット(R)でもう一度。", false);
+    setTa("🏁 " + fmtTime(ms));
+    flashHint("🏁 40ライン クリア！ タイム " + fmtTime(ms) + (newRec ? "（自己ベスト更新！）" : "（ベスト " + fmtTime(prev) + "）") + "　リセット(R)でもう一度。", false);
     render();
   }
 
@@ -1949,7 +1964,8 @@
     G.mode = "finesse"; G.template = null; resetCommon();
     G.finesseTimed = true;
     newFinesseTarget(); // 目標と最適手ヒントを設定（updateFinesseStatus）
-    modeLabel.textContent = "最適化20秒  残り20.0s  正解0";
+    modeLabel.textContent = "最適化 20秒チャレンジ";
+    setTa("⏱ 残り" + padL((OPT20_MS / 1000).toFixed(1), 4) + "秒  正解 0");
   }
   function finishFinesse20() {
     G.timedDone = true; G.active = null; G.over = true; G.targetCells = null;
@@ -1958,21 +1974,21 @@
     const newRec = (prev == null || n > prev);
     if (newRec) saveBest("opt20", n);
     sfx("perfect");
-    modeLabel.textContent = "最適化20秒 終了  正解" + n + "問";
+    setTa("⏱ 終了  正解 " + n + " 問");
     flashHint("⏱ 20秒終了！ 正解 " + n + " 問 / ミス " + miss + "（" + (newRec ? "自己ベスト更新！" : "ベスト " + (prev || 0) + "問") + "）　リセット(R)でもう一度。", false);
     render();
   }
-  // inputLoop から毎フレーム: タイマー表示更新＋20秒終了判定
+  // inputLoop から毎フレーム: ライブ表示更新＋20秒終了判定（modeLabel は固定、#ta-time のみ更新）
   function updateTimedDisplay(now) {
     if (G.timedDone) return;
     if (G.mode === "sprint") {
       const ms = G.timerStart != null ? (now - G.timerStart) : 0;
       const left = Math.max(0, (G.sprintGoal || SPRINT_GOAL) - G.lines);
-      modeLabel.textContent = "40LINE  " + fmtTime(ms) + "s  残り" + left;
+      setTa("⏱ " + fmtTime(ms) + "  残り" + padL(left, 2));
     } else if (G.mode === "finesse" && G.finesseTimed) {
       const elapsed = G.timerStart != null ? (now - G.timerStart) : 0;
       const remain = Math.max(0, OPT20_MS - elapsed);
-      modeLabel.textContent = "最適化20秒  残り" + (remain / 1000).toFixed(1) + "s  正解" + G.finessePerfect;
+      setTa("⏱ 残り" + padL((remain / 1000).toFixed(1), 4) + "秒  正解 " + G.finessePerfect);
       if (G.timerStart != null && elapsed >= OPT20_MS) finishFinesse20();
     }
   }
@@ -2070,9 +2086,9 @@
     updateFinesseStatus();
   }
   function updateFinesseLabel() {
-    if (G.finesseTimed) return; // 20秒モードは updateTimedDisplay がラベルを管理
+    if (G.finesseTimed) return; // 20秒モードは updateTimedDisplay が #ta-time を管理
     const rate = G.finesseAttempts ? Math.round(100 * G.finessePerfect / G.finesseAttempts) : 0;
-    modeLabel.textContent = "最適化 完璧 " + G.finessePerfect + "/" + G.finesseAttempts + " (" + rate + "%)";
+    setTa("✓ 完璧 " + G.finessePerfect + " / " + G.finesseAttempts + "  (" + rate + "%)"); // 盤面下の固定表示（topbarを動かさない）
   }
   // 出題中の目標を常時ヒントに表示（向き・列・最適手つき）
   function updateFinesseStatus() {
@@ -2094,6 +2110,7 @@
     const impl = finesseImplementedPieces();
     newFinesseTarget();
     modeLabel.textContent = "最適化（全" + impl.length + "ミノ）";
+    updateFinesseLabel(); // #ta-time に「完璧 0/0」を表示
   }
   function handleFinesseLock() {
     const a = G.active;
