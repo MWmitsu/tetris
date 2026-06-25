@@ -90,7 +90,7 @@
 
   // ---- ゲーム状態 ----
   const G = {
-    mode: "free",          // free | template | dig
+    mode: "free",          // free | template | sprint | finesse（finesse は G.finesseTimed で20秒モード）
     grid: E.emptyGrid(),
     active: null,          // {piece,rot,px,py}
     hold: null,
@@ -1501,6 +1501,7 @@
 
   // ===== 操作 =====
   function tryMove(dx, dy) {
+    startTimerIfNeeded(); // タイムアタックは最初の操作で計測開始
     if (!G.active || G.over) return false;
     const a = G.active;
     if (!E.collide(G.grid, a.piece, a.rot, a.px + dx, a.py + dy)) {
@@ -1513,6 +1514,7 @@
     return false;
   }
   function tryRotate(dir) {
+    startTimerIfNeeded();
     if (!G.active || G.over) return;
     const res = E.rotate(G.grid, G.active, dir);
     if (res) {
@@ -1524,6 +1526,7 @@
     }
   }
   function tryRotate180() {
+    startTimerIfNeeded();
     if (!G.active || G.over) return;
     const res = E.rotate180(G.grid, G.active); // PPT2準拠の単発180°回転
     if (res) {
@@ -1536,6 +1539,7 @@
   }
   function softDrop() { if (!tryMove(0, 1) && settings.gravity) {/*lock handled by gravity*/} }
   function hardDrop() {
+    startTimerIfNeeded();
     if (!G.active || G.over) return;
     const a = G.active;
     // ハードドロップは「設置」操作。直前の回転(lastRotation)はT-Spin判定のため保持する。
@@ -1549,6 +1553,7 @@
     // 手順型(steps/fsteps)・ミノ順固定field型ではホールド無効（決め打ちのため）
     const lockedOrder = (G.mode === "template") &&
       (tplType() === "steps" || tplType() === "fsteps" || (G.template && G.template.queue));
+    startTimerIfNeeded();
     if (!G.active || G.over || !G.canHold || lockedOrder) return;
     pushHistory();
     const cur = G.active.piece;
@@ -1705,6 +1710,8 @@
       if (msg) flashHint(msg, false);
       spawnFromQueue();
     } else {
+      // 40LINEスプリント: 目標ライン到達でタイム計測終了（凍結）
+      if (G.mode === "sprint" && G.lines >= (G.sprintGoal || SPRINT_GOAL)) { finishSprint(); return; }
       if (msg) flashHint(msg, false);
       spawnFromQueue();
     }
@@ -1782,6 +1789,7 @@
     G.stepIndex = 0; G.mistake = false; G.targetCells = null;
     G.buildSlot = null;
     G.finesseInputs = 0; G.finessePieces = 0; G.finessePerfect = 0; G.finesseAttempts = 0; G._finPiece = null;
+    G.finesseTimed = false; G.timerStart = null; G.timedDone = false; G.sprintGoal = SPRINT_GOAL; // タイムアタック状態
     clearHeld();
     // リマップ取得モードが残っていると入力が吸われ続けるので解除
     captureKeyAction = null; capturePadAction = null;
@@ -1895,20 +1903,78 @@
     }
     render();
   }
-  function startDig(rowsN) {
-    if (G.chain) G.chain.on = false;
-    G.mode = "dig"; resetCommon();
-    rowsN = rowsN || 8;
-    for (let r = ROWS - rowsN; r < ROWS; r++) {
-      const hole = Math.floor(Math.random() * COLS);
-      for (let c = 0; c < COLS; c++) {
-        if (c !== hole) G.grid[r][c] = "#7a8290";
-      }
+  // ===== タイムアタック（40LINEスプリント / 最適化20秒） =====
+  // 共通タイマー: 最初のプレイ操作(tryMove/tryRotate/hardDrop/holdPiece)で計測開始。
+  // inputLoop が毎フレーム表示更新と20秒終了判定を行う。
+  const SPRINT_GOAL = 40;
+  const OPT20_MS = 20000;
+  function fmtTime(ms) { return ((ms == null ? 0 : ms) / 1000).toFixed(2); }
+  function startTimerIfNeeded() {
+    if (G.timedDone) return;
+    if (G.mode === "sprint" || (G.mode === "finesse" && G.finesseTimed)) {
+      if (G.timerStart == null) G.timerStart = (typeof performance !== "undefined" ? performance.now() : 0);
     }
+  }
+  function bestKey(mode) { return mode === "sprint" ? "tt_sprint_best_ms" : "tt_opt20_best_n"; }
+  function loadBest(mode) { try { const v = localStorage.getItem(bestKey(mode)); return v == null ? null : Number(v); } catch (e) { return null; } }
+  function saveBest(mode, val) { try { localStorage.setItem(bestKey(mode), String(val)); } catch (e) {} }
+
+  // 40LINE スプリント（ぷよテト風: 40ライン消去までのタイム計測）。フリー同様7-bag＋通常消去。
+  function startSprint() {
+    if (G.chain) G.chain.on = false;
+    G.mode = "sprint"; G.template = null; resetCommon();
+    G.sprintGoal = SPRINT_GOAL;
     ensureQueue(6); spawnFromQueue();
-    modeLabel.textContent = "掘り(Dig) " + rowsN + "段";
-    flashHint("お邪魔(灰)を消して盤面を空にしよう。穴の位置を読んで効率よく掘る練習。", false);
+    const best = loadBest("sprint");
+    modeLabel.textContent = "40LINE  0.00s  残り" + SPRINT_GOAL;
+    flashHint("40ライン消すまでのタイムを計測。最初の操作で計測開始、ハードドロップで素早く積もう。" + (best != null ? "（ベスト " + fmtTime(best) + "s）" : ""), false);
     render();
+  }
+  function finishSprint() {
+    const now = (typeof performance !== "undefined" ? performance.now() : 0);
+    const ms = G.timerStart != null ? (now - G.timerStart) : 0;
+    G.timedDone = true; G.active = null; G.over = true; G.targetCells = null;
+    const prev = loadBest("sprint");
+    const newRec = (prev == null || ms < prev);
+    if (newRec) saveBest("sprint", ms);
+    sfx("perfect");
+    modeLabel.textContent = "40LINE 完了 " + fmtTime(ms) + "s";
+    flashHint("🏁 40ライン クリア！ タイム " + fmtTime(ms) + "s" + (newRec ? "（自己ベスト更新！）" : "（ベスト " + fmtTime(prev) + "s）") + "　リセット(R)でもう一度。", false);
+    render();
+  }
+
+  // 最適化20秒（20秒で何問正解できるか）。最適化モードの時間制限版。
+  function startFinesse20() {
+    if (G.chain) G.chain.on = false;
+    G.mode = "finesse"; G.template = null; resetCommon();
+    G.finesseTimed = true;
+    newFinesseTarget(); // 目標と最適手ヒントを設定（updateFinesseStatus）
+    modeLabel.textContent = "最適化20秒  残り20.0s  正解0";
+  }
+  function finishFinesse20() {
+    G.timedDone = true; G.active = null; G.over = true; G.targetCells = null;
+    const n = G.finessePerfect, miss = Math.max(0, G.finesseAttempts - G.finessePerfect);
+    const prev = loadBest("opt20");
+    const newRec = (prev == null || n > prev);
+    if (newRec) saveBest("opt20", n);
+    sfx("perfect");
+    modeLabel.textContent = "最適化20秒 終了  正解" + n + "問";
+    flashHint("⏱ 20秒終了！ 正解 " + n + " 問 / ミス " + miss + "（" + (newRec ? "自己ベスト更新！" : "ベスト " + (prev || 0) + "問") + "）　リセット(R)でもう一度。", false);
+    render();
+  }
+  // inputLoop から毎フレーム: タイマー表示更新＋20秒終了判定
+  function updateTimedDisplay(now) {
+    if (G.timedDone) return;
+    if (G.mode === "sprint") {
+      const ms = G.timerStart != null ? (now - G.timerStart) : 0;
+      const left = Math.max(0, (G.sprintGoal || SPRINT_GOAL) - G.lines);
+      modeLabel.textContent = "40LINE  " + fmtTime(ms) + "s  残り" + left;
+    } else if (G.mode === "finesse" && G.finesseTimed) {
+      const elapsed = G.timerStart != null ? (now - G.timerStart) : 0;
+      const remain = Math.max(0, OPT20_MS - elapsed);
+      modeLabel.textContent = "最適化20秒  残り" + (remain / 1000).toFixed(1) + "s  正解" + G.finessePerfect;
+      if (G.timerStart != null && elapsed >= OPT20_MS) finishFinesse20();
+    }
   }
 
   // ===== フィネス練習（データ駆動・全7ミノ・最少入力 / DAS=1アクション） =====
@@ -2004,8 +2070,9 @@
     updateFinesseStatus();
   }
   function updateFinesseLabel() {
+    if (G.finesseTimed) return; // 20秒モードは updateTimedDisplay がラベルを管理
     const rate = G.finesseAttempts ? Math.round(100 * G.finessePerfect / G.finesseAttempts) : 0;
-    modeLabel.textContent = "フィネス 完璧 " + G.finessePerfect + "/" + G.finesseAttempts + " (" + rate + "%)";
+    modeLabel.textContent = "最適化 完璧 " + G.finessePerfect + "/" + G.finesseAttempts + " (" + rate + "%)";
   }
   // 出題中の目標を常時ヒントに表示（向き・列・最適手つき）
   function updateFinesseStatus() {
@@ -2026,7 +2093,7 @@
     G.mode = "finesse"; G.template = null; resetCommon();
     const impl = finesseImplementedPieces();
     newFinesseTarget();
-    modeLabel.textContent = "フィネス練習（全" + impl.length + "ミノ）";
+    modeLabel.textContent = "最適化（全" + impl.length + "ミノ）";
   }
   function handleFinesseLock() {
     const a = G.active;
@@ -2277,13 +2344,15 @@
       }
       // ゲームパッド(Joy-Con等)
       pollGamepad(now);
-      // gravity（自由/掘りのみ。テンプレ・フィネスは自動落下しない）
-      if (settings.gravity && G.active && !G.over && (G.mode === "free" || G.mode === "dig")) {
+      // gravity（自由のみ。テンプレ・最適化・タイムアタックは自動落下しない）
+      if (settings.gravity && G.active && !G.over && G.mode === "free") {
         if (now - G.lastGravity >= settings.gravityMs) {
           if (!tryMove(0, 1)) { hardDropNoExtend(); }
           G.lastGravity = now;
         }
       }
+      // タイムアタックの表示更新＆20秒終了判定（最初の操作で計測開始済み）
+      if (G.mode === "sprint" || (G.mode === "finesse" && G.finesseTimed)) updateTimedDisplay(now);
     } catch (e) { /* 1フレームの例外でループを止めない（ゲームパッド/長押しの永久停止を防ぐ） */ }
     requestAnimationFrame(inputLoop);
   }
@@ -2522,16 +2591,18 @@
   function doReset() {
     if (G.mode === "free") startFree();
     else if (G.mode === "template") resetTemplate();
-    else if (G.mode === "finesse") startFinesse();
-    else startDig(8);
+    else if (G.mode === "sprint") startSprint();
+    else if (G.mode === "finesse") { if (G.finesseTimed) startFinesse20(); else startFinesse(); }
+    else startFree();
   }
 
   // ===== 画面UI構築 =====
   function buildUI() {
     // モードボタン
     $("btn-free").addEventListener("click", startFree);
-    $("btn-dig").addEventListener("click", function () { startDig(8); });
+    if ($("btn-sprint")) $("btn-sprint").addEventListener("click", startSprint);
     $("btn-finesse").addEventListener("click", startFinesse);
+    if ($("btn-finesse-20s")) $("btn-finesse-20s").addEventListener("click", startFinesse20);
     $("btn-reset").addEventListener("click", doReset);
     $("btn-undo").addEventListener("click", undo);
 
