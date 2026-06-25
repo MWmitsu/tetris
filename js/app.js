@@ -1928,8 +1928,20 @@
     }
   }
   function bestKey(mode) { return mode === "sprint" ? "tt_sprint_best_ms" : "tt_opt20_best_n"; }
+  function lastKey(mode) { return mode === "sprint" ? "tt_sprint_last_ms" : "tt_opt20_last_n"; }
   function loadBest(mode) { try { const v = localStorage.getItem(bestKey(mode)); return v == null ? null : Number(v); } catch (e) { return null; } }
   function saveBest(mode, val) { try { localStorage.setItem(bestKey(mode), String(val)); } catch (e) {} }
+  function loadLast(mode) { try { const v = localStorage.getItem(lastKey(mode)); return v == null ? null : Number(v); } catch (e) { return null; } }
+  function saveLast(mode, val) { try { localStorage.setItem(lastKey(mode), String(val)); } catch (e) {} }
+  // 記録の表示文字列（前回＝最新, ベスト）。値が無ければ "—"。
+  function sprintRecLine() {
+    const last = loadLast("sprint"), best = loadBest("sprint");
+    return "前回 " + (last != null ? fmtTime(last) : "—") + " ／ ベスト " + (best != null ? fmtTime(best) : "—");
+  }
+  function opt20RecLine() {
+    const last = loadLast("opt20"), best = loadBest("opt20");
+    return "前回 " + (last != null ? last + "問" : "—") + " ／ ベスト " + (best != null ? best + "問" : "—");
+  }
 
   // 40LINE スプリント（ぷよテト風: 40ライン消去までのタイム計測）。フリー同様7-bag＋通常消去。
   // ライブ表示の整形（幅が変わらないよう space-pad＋等幅。盤面下の #ta-time に出す）。
@@ -1939,10 +1951,9 @@
     G.mode = "sprint"; G.template = null; resetCommon();
     G.sprintGoal = SPRINT_GOAL;
     ensureQueue(6); spawnFromQueue();
-    const best = loadBest("sprint");
     modeLabel.textContent = "40LINE スプリント";
     setTa("⏱ " + fmtTime(0) + "  残り" + padL(SPRINT_GOAL, 2));
-    flashHint("40ライン消すまでのタイムを計測。最初のミノを動かすと計測開始、ハードドロップで素早く積もう。" + (best != null ? "（ベスト " + fmtTime(best) + "）" : ""), false);
+    flashHint("40ライン消すまでのタイムを計測。最初のミノを動かすと計測開始、ハードドロップで素早く積もう。　" + sprintRecLine(), false);
     render();
   }
   function finishSprint() {
@@ -1951,10 +1962,11 @@
     G.timedDone = true; G.active = null; G.over = true; G.targetCells = null;
     const prev = loadBest("sprint");
     const newRec = (prev == null || ms < prev);
-    if (newRec) saveBest("sprint", ms);
+    saveLast("sprint", ms);            // 最新記録は毎回保存
+    if (newRec) saveBest("sprint", ms); // ベストは更新時のみ
     sfx("perfect");
     setTa("🏁 " + fmtTime(ms));
-    flashHint("🏁 40ライン クリア！ タイム " + fmtTime(ms) + (newRec ? "（自己ベスト更新！）" : "（ベスト " + fmtTime(prev) + "）") + "　リセット(R)でもう一度。", false);
+    flashHint("🏁 40ライン クリア！ 今回 " + fmtTime(ms) + (newRec ? "　🎉NEW RECORD！" : "") + "　／ ベスト " + fmtTime(loadBest("sprint")) + "　リセット(R)でもう一度。", false);
     render();
   }
 
@@ -1966,16 +1978,18 @@
     newFinesseTarget(); // 目標と最適手ヒントを設定（updateFinesseStatus）
     modeLabel.textContent = "最適化 20秒チャレンジ";
     setTa("⏱ 残り" + padL((OPT20_MS / 1000).toFixed(1), 4) + "秒  正解 0");
+    flashHint("20秒で何問正解できるか！最初のミノを動かすと計測開始。　" + opt20RecLine(), false);
   }
   function finishFinesse20() {
     G.timedDone = true; G.active = null; G.over = true; G.targetCells = null;
     const n = G.finessePerfect, miss = Math.max(0, G.finesseAttempts - G.finessePerfect);
     const prev = loadBest("opt20");
     const newRec = (prev == null || n > prev);
-    if (newRec) saveBest("opt20", n);
+    saveLast("opt20", n);             // 最新記録は毎回保存
+    if (newRec) saveBest("opt20", n); // ベストは更新時のみ
     sfx("perfect");
     setTa("⏱ 終了  正解 " + n + " 問");
-    flashHint("⏱ 20秒終了！ 正解 " + n + " 問 / ミス " + miss + "（" + (newRec ? "自己ベスト更新！" : "ベスト " + (prev || 0) + "問") + "）　リセット(R)でもう一度。", false);
+    flashHint("⏱ 20秒終了！ 今回 正解 " + n + " 問 / ミス " + miss + (newRec ? "　🎉NEW RECORD！" : "") + "　／ ベスト " + loadBest("opt20") + "問　リセット(R)でもう一度。", false);
     render();
   }
   // inputLoop から毎フレーム: ライブ表示更新＋20秒終了判定（modeLabel は固定、#ta-time のみ更新）
@@ -2393,7 +2407,7 @@
     rot180: { btn: [3] },                          // X = 180°
     hold:   { btn: [2, 4, 5] },                    // Y / L / R = ホールド
     undo:   { btn: [8, 6] },                        // - / ZL = 一手戻す
-    reset:  { btn: [9, 7] },                        // + / ZR = リセット
+    reset:  { btn: [9] },                            // + のみ = リセット（ZRは割り当てなし。誤リセット防止）
   };
   // キーボード既定（複数キー可）。localStorageでユーザー上書き可。
   const KEYMAP_DEFAULT = {
@@ -2417,6 +2431,11 @@
   function saveMap(lsKey, map) { try { localStorage.setItem(lsKey, JSON.stringify(map)); } catch (e) {} }
   function labelOf(a) { for (let i = 0; i < ACTIONS.length; i++) if (ACTIONS[i].k === a) return ACTIONS[i].label; return a; }
   let PAD_MAP = loadMap("tt_padmap_v1", PAD_MAP_DEFAULT);
+  // 移行: 旧保存設定でも ZR(btn7) はリセットから除去（＋ボタンのみでリセット・誤操作防止）
+  if (PAD_MAP.reset && Array.isArray(PAD_MAP.reset.btn) && PAD_MAP.reset.btn.indexOf(7) >= 0) {
+    PAD_MAP.reset.btn = PAD_MAP.reset.btn.filter(function (b) { return b !== 7; });
+    saveMap("tt_padmap_v1", PAD_MAP);
+  }
   let KEYMAP = loadMap("tt_keymap_v1", KEYMAP_DEFAULT);
   let captureKeyAction = null, capturePadAction = null;
   function actionForKey(k) {
@@ -2890,5 +2909,7 @@
     },
     simulate: function (piece, inputs) { return finesseSimulate(piece, inputs); },
     targetCells: function (piece, pl) { return finesseTargetCells(piece, pl); },
+    finishSprint: function () { return finishSprint(); },
+    finishFinesse20: function () { return finishFinesse20(); },
   };
 })();
