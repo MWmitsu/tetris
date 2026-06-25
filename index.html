@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=28" />
+  <link rel="stylesheet" href="css/style.css?v=29" />
 </head>
 <body>
   <header class="topbar">
@@ -93,6 +93,24 @@
       </div>
 
       <div class="panel">
+        <div class="panel-title">簡易版はちみつ砲ガイド（決定木・DRAFT）</div>
+        <div class="io-row">
+          <button id="btn-hcs-start" class="ctrl-btn small primary">簡易版ガイド ON（開始）</button>
+          <button id="btn-hcs-off" class="ctrl-btn small">OFF</button>
+        </div>
+        <div class="io-row">
+          <button id="btn-hcs-reset" class="ctrl-btn small">最初に戻る</button>
+          <button id="btn-hcs-next" class="ctrl-btn small">次の分岐へ進む</button>
+          <button id="btn-hcs-reroll" class="ctrl-btn small">候補を再抽選</button>
+        </div>
+        <p class="note">決定木に沿って次の形を背景に薄く表示。現在ミノ/ホールド/NEXTで分岐を判定（手動進行）。既存の通し練習・暗記モードとは別物（ONのときだけ重畳）。</p>
+        <details class="ctrl-sec">
+          <summary class="panel-title" style="cursor:pointer">簡易版ガイドデバッグ</summary>
+          <div id="hcs-debug" class="note" style="white-space:pre-wrap;font-family:monospace;font-size:11px;line-height:1.45">（簡易版ガイドON時に表示）</div>
+        </details>
+      </div>
+
+      <div class="panel">
         <div class="panel-title">練習テンプレ</div>
         <div id="tpl-list" class="tpl-list"></div>
       </div>
@@ -157,14 +175,15 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=28"></script>
-  <script src="js/templates.js?v=28"></script>
-  <script src="js/catalog.js?v=28"></script>
-  <script src="js/catalog_data.js?v=28"></script>
-  <script src="js/fumen.js?v=28"></script>
-  <script src="js/honeycup.js?v=28"></script>
-  <script src="js/honeycup_patterns.js?v=28"></script>
-  <script src="js/app.js?v=28"></script>
+  <script src="js/engine.js?v=29"></script>
+  <script src="js/templates.js?v=29"></script>
+  <script src="js/catalog.js?v=29"></script>
+  <script src="js/catalog_data.js?v=29"></script>
+  <script src="js/fumen.js?v=29"></script>
+  <script src="js/honeycup.js?v=29"></script>
+  <script src="js/honeycup_patterns.js?v=29"></script>
+  <script src="js/honeycup_simple.js?v=29"></script>
+  <script src="js/app.js?v=29"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>
