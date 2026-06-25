@@ -10,8 +10,8 @@
 //  app.js は ←/→ の離散押下点（pressMove / パッド方向確定 / タッチ左右）と
 //  回転（tryRotate/180）で G.finesseInputs を加算し、この actions と比較する。
 //
-//  まずは Ｏミノのみ実装（ユーザー提供 finesse_o.json を忠実に反映）。
-//  他ミノ（I/L/J/S/Z/T）は回転を含むため別途追加予定。追加すると
+//  現在は Ｏミノのみ実装（ユーザー提供 finesse_o.json を忠実に反映）。
+//  他ミノのフィネス情報は未収録。pieces に新しいミノを追加すれば
 //  finesseImplementedPieces() が自動で練習対象に含める。
 // ============================================================
 (function () {
@@ -28,11 +28,10 @@
 
   window.TT_FINESSE = {
     meta: {
-      version: "v36",
+      version: "v37",
       note: "←/→の押下1回=1アクション（DAS長押しも1回）。回転1回=1アクション。ハードドロップは数えない。",
       input_legend: INPUT_LEGEND,
-      implemented: ["O"],
-      planned: ["I", "L", "J", "S", "Z", "T"],
+      implemented: ["O"], // 現在はＯミノのみ。他ミノの情報は未収録。
     },
     pieces: {
       // ---- Ｏミノ（回転対称＝回転不要） ----
