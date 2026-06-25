@@ -1069,7 +1069,9 @@
     if (G.chain) G.chain.on = false;
     if (G.mode !== "free") startFree(); // 既存オーバーレイと競合しないようフリーで重ねる
     hcSimple.on = true; hcSimple.currentId = hcSimple.tree.start; hcSimple.selectedNextId = null;
-    flashHint("簡易版はちみつ砲ガイド ON：背景の薄い形が目安。『次の分岐へ進む』で進めます。" + (((hcSimple.tree.mapping_status || "").indexOf("DRAFT") >= 0) ? "（DRAFT＝位置は目安）" : ""), false);
+    const ms = hcSimple.tree.mapping_status || "";
+    const msNote = (ms.indexOf("CONFIRMED") >= 0) ? "（CONFIRMED：node↔canvas・条件はユーザー確認済み）" : ((ms.indexOf("DRAFT") >= 0) ? "（DRAFT＝位置は目安）" : "");
+    flashHint("簡易版はちみつ砲ガイド ON：背景の薄い形に沿って組み、『次の分岐へ進む』で進めます。" + msNote, false);
     updateHcSimpleDebug(); render();
   }
   function hcSimpleOff() { hcSimple.on = false; updateHcSimpleDebug(); render(); flashHint("簡易版ガイド OFF（既存挙動に戻ります）。", false); }
@@ -1099,7 +1101,9 @@
     const st = hcSimpleState();
     const L = [];
     L.push("tree: " + t.name + " / " + t.title);
-    if ((t.mapping_status || "").indexOf("DRAFT") >= 0) L.push("⚠ 簡易版ガイドはDRAFTデータです。派生・背景位置は目安として使用してください。");
+    const _ms = t.mapping_status || "";
+    if (_ms.indexOf("CONFIRMED") >= 0) L.push("✓ CONFIRMED：node↔canvas対応・分岐条件はユーザー確認済みデータです。");
+    else if (_ms.indexOf("DRAFT") >= 0) L.push("⚠ 簡易版ガイドはDRAFTデータです。派生・背景位置は目安として使用してください。");
     L.push("mode: " + (hcSimple.on ? "ON" : "OFF") + " ／ 現在node: " + (hcSimple.currentId || "-") + (node ? (" 「" + node.label + "」canvas" + node.canvas) : ""));
     L.push("現在ミノ: " + (st.currentPiece || "-") + "  ホールド: " + (st.holdPiece || "-") + "  NEXT: " + st.nextQueue.slice(0, 5).join(" "));
     if (node) {

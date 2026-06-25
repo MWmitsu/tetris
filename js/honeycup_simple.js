@@ -1,16 +1,24 @@
 /* はちみつ砲 簡易版ガイド（決定木）データ。honeycup_simple.json をそのまま埋め込み。
    既存のPattern DB / valid判定 / 通し練習とは独立した「簡易版ガイドモード」専用。
-   出典: https://shiwehi.com/tetris/template/honeycup.php （mapping_status は DRAFT：目安として使用）。 */
+   出典: https://shiwehi.com/tetris/template/honeycup.php
+   mapping_status は CONFIRMED（node↔canvas対応・条件はユーザー確認済み）。 */
 window.TT_HC_SIMPLE = {
   "name": "honeycup_simple",
   "title": "はちみつ砲の派生（簡単ver.）決定木",
   "source": "https://shiwehi.com/tetris/template/honeycup.php",
   "description": "はちみつ砲の派生フローチャート(簡単ver.)を決定木化。各nodeは盤面(fumen v115 / 10x可変)。edgesはネクスト・ホールドの順序などの分岐条件。",
-  "mapping_status": "DRAFT: 各node.canvasは簡単ver画像→honeycup 36図への目視対応。要確認・差し替え容易。",
+  "mapping_status": "CONFIRMED: node↔canvas対応はユーザー確認済み（簡単ver画像→honeycup #0-35）。",
   "legend": {
-    "O>J": "OがJより先", "J>O": "JがOより先", "S>L": "SがLより先", "L>S": "LがSより先",
-    "T早め": "Tが早い", "T遅め": "Tが遅い", "確定": "分岐なし(一意)",
-    "LZ早い方で屋根を付ける": "LとZの早い方で屋根(フタ)", "パフェ": "うまくいけばパーフェクトクリア"
+    "_about": "条件はネクスト＋ホールドを合わせた『使用可能順(queue)』での前後で判定する。idx(P)=ミノPを使える早さ(小さいほど早い)。",
+    "O>J": { "meaning": "OがJより先（ネクスト＋ホールドでOを先に使える）", "eval": "idx('O') < idx('J')" },
+    "J>O": { "meaning": "JがOより先", "eval": "idx('J') < idx('O')" },
+    "S>L": { "meaning": "SがLより先", "eval": "idx('S') < idx('L')" },
+    "L>S": { "meaning": "LがSより先", "eval": "idx('L') < idx('S')" },
+    "T早め": { "meaning": "Tが早く来る", "eval": "idx('T') が小さい（目安: S/Lの組み完了より前にTが使える）" },
+    "T遅め": { "meaning": "Tが遅く来る", "eval": "idx('T') が大きい（上記の否定）" },
+    "確定": { "meaning": "分岐なし（一意に決まる）", "eval": "true（無条件）" },
+    "LZ早い方で屋根を付ける": { "meaning": "LとZの早い方で屋根(フタ)を付ける", "eval": "roof = (idx('L') < idx('Z') ? 'L' : 'Z')" },
+    "パフェ": { "meaning": "うまくいけばパーフェクトクリア（結果・分岐条件ではない）", "eval": null }
   },
   "start": "root",
   "nodes": [
@@ -66,5 +74,12 @@ window.TT_HC_SIMPLE = {
       "fumen": "v115@zgzhili0D8ywBtg0D8R4B8BtC8R4wwH8glE8JeAgH",
       "grid": ["..........", "IIIILLLJJJ", "GGGGTTTZZJ", "GGGGSSGGZZ", "GGGSSTGGGG", "GGGGLGGGGG"],
       "edges": [] }
-  ]
+  ],
+  "conditions_confirmed_by_user": true,
+  "mapping_confirmed_by_user": true,
+  "usage": {
+    "how_to_traverse": "start のノードから開始。現在ノードの edges を順に見て、condition を legend[condition].eval でプレイヤーのqueue(ネクスト+ホールド)に対して評価し、最初に真になった edge の to へ進む。葉(edges空)に到達したら、その node.fumen が推奨盤面。",
+    "idx_definition": "idx(P)=ミノPを最短で使える順番(0始まり,小さいほど早い)。ホールド中のミノは即使用可とみなしqueue先頭側に含める。",
+    "board_fields": "各nodeの fumen(=v115@..., fumen.zui.jpで開ける) または grid(10列の文字盤面: . 空 / IOTSZJL ミノ / G 確定スタック) を描画に使う。"
+  }
 };
