@@ -779,16 +779,44 @@
     }
     return dfs(0, null, new Set());
   }
-  // この巡の形を、今のバッグで成立する手順(P)の中からランダムに1つ選ぶ（＝自動判定）。
+  // この巡の形を、今のバッグで成立する手順(P)の中からランダムに1つ選ぶ（＝自動判定）。判定情報はG.hcAnalysisに保存（デバッグUI用）。
   function pickCycleTiling(t, bag) {
-    if (!t || !t.field) return null;
+    G.hcAnalysis = null;
+    if (!t || !t.field) { G.hcAnalysis = { total: 0, reachable: [], reasons: {}, fail: "NO_OPERATION_DATA", bag: (bag || []).slice() }; return null; }
     const tilings = hcEnumTilings(t.field, t.prefill);
-    if (!tilings.length) return null;
-    const buildable = [];
-    for (let i = 0; i < tilings.length; i++) if (hcTilingBuildable(tilings[i], t.prefill, bag)) buildable.push(i);
-    if (!buildable.length) return null;
+    if (!tilings.length) { G.hcAnalysis = { total: 0, reachable: [], reasons: {}, fail: "NO_OPERATION_DATA", bag: (bag || []).slice() }; return null; }
+    const buildable = [], reasons = {};
+    for (let i = 0; i < tilings.length; i++) {
+      if (hcTilingBuildable(tilings[i], t.prefill, bag)) buildable.push(i);
+      else reasons[i] = "PIECE_ORDER_IMPOSSIBLE";
+    }
+    G.hcAnalysis = { total: tilings.length, reachable: buildable.slice(), reasons: reasons, tilings: tilings, bag: (bag || []).slice() };
+    if (!buildable.length) { G.hcAnalysis.fail = "PIECE_ORDER_IMPOSSIBLE"; return null; }
     const pickIdx = buildable[Math.floor(Math.random() * buildable.length)];
-    return { tiling: tilings[pickIdx], pNo: buildable.indexOf(pickIdx) + 1, total: tilings.length, buildableCount: buildable.length };
+    G.hcAnalysis.picked = pickIdx;
+    return { tiling: tilings[pickIdx], pNo: pickIdx + 1, total: tilings.length, buildableCount: buildable.length, pickIdx: pickIdx };
+  }
+  // 判定デバッグUI更新（仕様のデバッグ表示：phase/現在ミノ/ホールド/NEXT/組める手順P/除外理由）
+  function updateHcDebug() {
+    const el = $("hc-debug-body"); if (!el) return;
+    const t = G.template;
+    if (!(t && t.setup)) { el.textContent = "（はちみつ砲の通し練習／単体練習を始めると、組める手順Pの自動判定が表示されます）"; return; }
+    const an = G.hcAnalysis;
+    const phase = (G.chain && G.chain.on) ? ("通し " + G.chain.stage + "/3") : "単体";
+    const next5 = (G.queue || []).slice(0, 5).join(" ");
+    const L = [];
+    L.push("phase: " + phase + " ／ 形: " + t.name);
+    L.push("現在ミノ: " + (G.active ? G.active.piece : "-") + "  ホールド: " + (G.hold || "-") + "  NEXT5: " + next5);
+    if (an) {
+      L.push("組み手順(P)総数: " + an.total + "  組める: " + an.reachable.length + "  [" + an.reachable.map(function (i) { return "P" + (i + 1); }).join(",") + "]");
+      const pinfo = curPInfo();
+      L.push("選択中: " + (pinfo ? ("P" + pinfo.pNo) : (curTiling() ? "ガイド順(フォールバック)" : (an.fail || "なし"))));
+      const ex = Object.keys(an.reasons || {});
+      if (ex.length) L.push("除外: " + ex.map(function (i) { return "P" + (+i + 1) + "=" + an.reasons[i]; }).join("  "));
+    } else {
+      L.push("（判定待ち：ミノが配られると判定します）");
+    }
+    el.textContent = L.join("\n");
   }
   function honeycupChainStart() {
     const t1 = setupByName(CHAIN_STEPS[0].name);
@@ -1655,6 +1683,7 @@
     statPc.textContent = G.pcs;
     if (statTspin) statTspin.textContent = G.tspins;
     if (statCycle) statCycle.textContent = G.cycles;
+    updateHcDebug();
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";

@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=26" />
+  <link rel="stylesheet" href="css/style.css?v=27" />
 </head>
 <body>
   <header class="topbar">
@@ -85,6 +85,10 @@
         <button id="btn-drill" class="ctrl-btn primary">弱点ドリル開始（自動周回）</button>
         <button id="btn-chain" class="ctrl-btn primary">通し練習 1→2→3（自動判定）</button>
         <p class="note">形を組むたびヒントが1段弱まり、無表示で組めたら★マスター。お手本=濃い目標＋黄＝次に置くミノ。<br>通し練習=1巡目(左右自動)→2巡目(NEXTで理想/妥協を自動判定)→3巡目(PC/ドネイト)を連続練習。</p>
+        <details class="ctrl-sec" id="hc-debug">
+          <summary class="panel-title" style="cursor:pointer">判定デバッグ（組める手順P・除外理由）</summary>
+          <div id="hc-debug-body" class="note" style="white-space:pre-wrap;font-family:monospace;font-size:11px;line-height:1.5">（はちみつ砲の練習中に表示）</div>
+        </details>
       </div>
 
       <div class="panel">
@@ -152,14 +156,14 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=26"></script>
-  <script src="js/templates.js?v=26"></script>
-  <script src="js/catalog.js?v=26"></script>
-  <script src="js/catalog_data.js?v=26"></script>
-  <script src="js/fumen.js?v=26"></script>
-  <script src="js/honeycup.js?v=26"></script>
-  <script src="js/honeycup_patterns.js?v=26"></script>
-  <script src="js/app.js?v=26"></script>
+  <script src="js/engine.js?v=27"></script>
+  <script src="js/templates.js?v=27"></script>
+  <script src="js/catalog.js?v=27"></script>
+  <script src="js/catalog_data.js?v=27"></script>
+  <script src="js/fumen.js?v=27"></script>
+  <script src="js/honeycup.js?v=27"></script>
+  <script src="js/honeycup_patterns.js?v=27"></script>
+  <script src="js/app.js?v=27"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>
