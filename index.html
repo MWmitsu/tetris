@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=47" />
+  <link rel="stylesheet" href="css/style.css?v=48" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v47</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v48</span></div>
   </header>
 
   <main class="layout">
@@ -91,7 +91,7 @@
         </div>
         <div id="hc-status" class="note tp-status">上の一覧からテンプレを選ぶと開始します。</div>
         <div class="tp-legend"><span class="sw sw-base"></span>土台（配置済み）<span class="sw sw-target"></span>置く目標（薄い色）</div>
-        <p class="note">薄い色の<b>目標形</b>を組めば成功（ホールド可・ライン消去なし）。R＝同じ形をやり直し。はちみつ砲は形1が「1巡目の土台」です。</p>
+        <p class="note">薄い色の<b>目標形</b>を組めば完成（ホールド可・<b>通常どおりライン消去あり</b>）。<b>失敗しても止まらず継続</b>できます。R＝やり直し。はちみつ砲は形1が「1巡目の土台」。</p>
       </div>
 
       <div class="panel">
@@ -154,16 +154,16 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=47"></script>
-  <script src="js/templates.js?v=47"></script>
-  <script src="js/catalog.js?v=47"></script>
-  <script src="js/catalog_data.js?v=47"></script>
-  <script src="js/fumen.js?v=47"></script>
-  <script src="js/honeycup.js?v=47"></script>
-  <script src="js/honeycup_patterns.js?v=47"></script>
-  <script src="js/templates_practice.js?v=47"></script>
-  <script src="js/finesse.js?v=47"></script>
-  <script src="js/app.js?v=47"></script>
+  <script src="js/engine.js?v=48"></script>
+  <script src="js/templates.js?v=48"></script>
+  <script src="js/catalog.js?v=48"></script>
+  <script src="js/catalog_data.js?v=48"></script>
+  <script src="js/fumen.js?v=48"></script>
+  <script src="js/honeycup.js?v=48"></script>
+  <script src="js/honeycup_patterns.js?v=48"></script>
+  <script src="js/templates_practice.js?v=48"></script>
+  <script src="js/finesse.js?v=48"></script>
+  <script src="js/app.js?v=48"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>

@@ -2131,7 +2131,7 @@
     if (!(hcPracIdx >= 0 && hcPracIdx < tpForms().length)) hcPracIdx = 0;
     buildFormJump(); // 現テンプレの形ジャンプ選択肢を再構築
     setupHoneycupBoard();
-    flashHint("灰=土台(配置済み)。薄い色の目標形を組めば成功（ホールド可・ライン消去なし）。一覧でテンプレ、形セレクタや◀▶で配置を切替。", false);
+    flashHint("灰=土台(配置済み)。薄い色の目標形を組めば完成（ライン消去あり・失敗しても継続可）。一覧でテンプレ、形セレクタや◀▶で配置を切替。", false);
   }
   function honeycupNext(d) { // 形(form)切替
     const n = tpForms().length; if (!n) return;
@@ -2161,24 +2161,32 @@
   function handleHoneycupLock() {
     const a = G.active;
     pushHistory();
-    E.lock(G.grid, a.piece, a.rot, a.px, a.py); // 盤面に固定（ライン消去しない＝形を保持）
+    // T-Spin判定（統計・ラベル用。固定前の盤面で判定）
+    let spin = "none";
+    if (a.piece === "T" && G.lastRotation) spin = E.tSpinType(G.grid, a, G.lastKick);
+    E.lock(G.grid, a.piece, a.rot, a.px, a.py);
     G.pieces++;
-    G.active = null;
-    // 判定: 目標外を埋めたら「はみ出し」、目標を全部埋めたら成功。
+    if (spin !== "none") G.tspins++;
+    // 完成判定は「ライン消去の前」に行う（消去でセルが消えても拾えるように）。
+    // 失敗(目標外=はみ出し)でも止めず継続する。完成＝目標セルが全部埋まったとき（はみ出しは不問）。
     const cnt = honeycupCount();
-    const overflow = cnt.overflow, filledTarget = cnt.filledTarget;
-    if (overflow > 0) {
-      flashHint("はみ出しました（目標の色形からズレ）。↩Undo(U)でやり直すか、リセット(R)を。", true);
-      render(); return;
-    }
-    if (filledTarget >= (G.hcTarget ? G.hcTarget.length : 0)) {
+    const justDone = (!G.hcDone) && G.hcTarget && G.hcTarget.length > 0 && cnt.filledTarget >= G.hcTarget.length;
+    // 通常のテトリス同様にライン消去
+    const cl = E.clearLines(G.grid); G.grid = cl.grid;
+    let clMsg = clearLabel(spin, cl.cleared);
+    if (cl.cleared > 0) { G.lines += cl.cleared; if (boardEmpty()) { G.pcs++; clMsg = (clMsg ? clMsg + " " : "") + "パーフェクトクリア！🎉"; } }
+    G.active = null;
+    if (justDone) {
+      G.hcDone = true; sfx("perfect"); showCompletion("✓ 完成！");
       const t = tpCurTemplate(), form = tpForms()[hcPracIdx];
       const pct = (form && form.percent != null) ? ("（成功率 " + form.percent + "%）") : "";
-      G.hcDone = true; sfx("perfect"); showCompletion("✓ 完成！");
-      flashHint("✓ 完成！ " + (t ? t.title : "") + " 形" + (hcPracIdx + 1) + pct + "。リセット(R)で再挑戦／「次の形」で次へ。", false);
-      render(); return;
+      flashHint("✓ 完成！ " + (t ? t.title : "") + " 形" + (hcPracIdx + 1) + pct +
+        (cl.cleared > 0 ? "　＋" + cl.cleared + "ライン消去" : "") + "。そのまま継続できます／R=やり直し／「次の形」で次へ。", false);
+    } else {
+      if (cl.cleared > 0) clearSfx(spin, cl.cleared, boardEmpty());
+      if (clMsg) flashHint(clMsg + "！", false);
     }
-    spawnFromQueue(); render();
+    spawnFromQueue(); render(); // 失敗しても常に次のミノを出して継続
   }
 
   // ===== ヒント文 =====
@@ -2228,8 +2236,8 @@
       }
     }
 
-    // テンプレ練習: 色の目標形(まだ置いていないセル)を薄く＋細枠で表示。練習の核なので常に表示。
-    if (G.mode === "honeycup" && G.hcTarget) {
+    // テンプレ練習: 色の目標形(まだ置いていないセル)を薄く＋細枠で表示。完成後(継続中)は非表示。
+    if (G.mode === "honeycup" && G.hcTarget && !G.hcDone) {
       bctx.save();
       for (let i = 0; i < G.hcTarget.length; i++) {
         const r = G.hcTarget[i][0], c = G.hcTarget[i][1], ch = G.hcTarget[i][2];
