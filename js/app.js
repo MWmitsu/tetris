@@ -2107,6 +2107,78 @@
     if (_tpFlashTimer) clearTimeout(_tpFlashTimer);
     _tpFlashTimer = setTimeout(function () { el.classList.remove("show"); }, 950);
   }
+
+  // --- テト譜(fumen)取込 → テンプレ練習の自作フォーム（永続化＝localStorage） ---
+  const TP_USER_KEY = "tt_user_forms_v1";
+  function tpLoadUserForms() { try { const a = JSON.parse(localStorage.getItem(TP_USER_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function tpSaveUserForms(forms) { try { localStorage.setItem(TP_USER_KEY, JSON.stringify(forms)); } catch (e) {} }
+  function tpUserTemplate() {
+    for (let i = 0; i < TP_TEMPLATES.length; i++) if (TP_TEMPLATES[i].id === "user") return TP_TEMPLATES[i];
+    const t = { id: "user", title: "ユーザー取込", source: "", total: 0, forms: [] }; TP_TEMPLATES.push(t); return t;
+  }
+  function tpLoadUserIntoTemplates() {
+    const stored = tpLoadUserForms(); if (!stored.length) return;
+    const t = tpUserTemplate();
+    t.forms = stored.map(function (f) { return { grid: f.grid, percent: null, pieces: "", comment: f.comment || "取込" }; });
+    t.total = t.forms.length;
+  }
+  // 色盤面(2D color/null) → grid文字行配列（X=灰土台 / I..S=ミノ / _=空。上下空行トリム）
+  function tpBoardToGrid(board) {
+    if (!Array.isArray(board)) return [];
+    const rows = [];
+    for (let r = 0; r < board.length; r++) {
+      let s = ""; const row = board[r] || [];
+      for (let c = 0; c < COLS; c++) {
+        const v = row[c];
+        if (!v) s += "_"; else if (SETUP_GRAYS[v]) s += "X"; else s += (COLOR_TO_PIECE[v] || "X");
+      }
+      rows.push(s);
+    }
+    while (rows.length && /^_+$/.test(rows[rows.length - 1])) rows.pop();
+    while (rows.length && /^_+$/.test(rows[0])) rows.shift();
+    return rows;
+  }
+  function tpGridHasColored(g) { for (let i = 0; i < g.length; i++) if (/[ILOZTJS]/.test(g[i])) return true; return false; }
+  function tpGridColored(g) { let n = 0; for (let i = 0; i < g.length; i++) { const m = g[i].match(/[ILOZTJS]/g); if (m) n += m.length; } return n; }
+  function importTemplateFromFumen(allPages) {
+    const ta = $("fumen-text"); const str = ta ? ta.value.trim() : "";
+    if (!str) { flashHint("テト譜(v115@...)を貼り付けてください。", true); return; }
+    if (!window.TT_FUMEN) { flashHint("fumenデコーダが読み込まれていません。", true); return; }
+    let grids = [];
+    try {
+      if (allPages) {
+        const pages = window.TT_FUMEN.decodePages(str);
+        for (let i = 0; i < pages.length; i++) { const g = tpBoardToGrid(setupPageBoard(pages[i])); if (tpGridHasColored(g) && tpGridColored(g) % 4 === 0) grids.push(g); }
+      } else {
+        const res = window.TT_FUMEN.toTargetField(str);
+        const g = tpBoardToGrid(res && res.field); if (tpGridHasColored(g)) grids.push(g);
+      }
+    } catch (e) { flashHint("テト譜の解釈に失敗しました: " + ((e && e.message) || e), true); return; }
+    const seen = {}, uniq = [];
+    grids.forEach(function (g) { const k = g.join("|"); if (!seen[k]) { seen[k] = 1; uniq.push(g); } });
+    grids = uniq;
+    if (!grids.length) { flashHint("置くミノ(色)が含まれていませんでした（灰のみ/空、または手数が不正）。", true); return; }
+    const t = tpUserTemplate(), stored = tpLoadUserForms(), startLen = t.forms.length;
+    grids.forEach(function (g) {
+      const cm = "取込（" + (tpGridColored(g) / 4) + "ミノ）";
+      t.forms.push({ grid: g, percent: null, pieces: "", comment: cm });
+      stored.push({ grid: g, comment: cm });
+    });
+    t.total = t.forms.length; tpSaveUserForms(stored);
+    tpTmpl = TP_TEMPLATES.indexOf(t); hcPracIdx = startLen;
+    buildTemplateList(); startHoneycup();
+    flashHint(grids.length + " 件を「ユーザー取込」に追加しました。テンプレ練習で挑戦できます。", false);
+    if (ta) ta.value = "";
+  }
+  function clearUserForms() {
+    tpSaveUserForms([]);
+    const idx = (function () { for (let i = 0; i < TP_TEMPLATES.length; i++) if (TP_TEMPLATES[i].id === "user") return i; return -1; })();
+    if (idx >= 0) TP_TEMPLATES.splice(idx, 1);
+    if (tpTmpl >= TP_TEMPLATES.length) tpTmpl = 0;
+    hcPracIdx = 0; buildTemplateList();
+    if (G.mode === "honeycup") startHoneycup();
+    flashHint("取込フォームを全消去しました。", false);
+  }
   function updateHoneycupStatus() {
     const t = tpCurTemplate(); const form = tpForms()[hcPracIdx];
     const fi = $("tp-formidx");
@@ -2694,6 +2766,7 @@
     if ($("btn-hc-next")) $("btn-hc-next").addEventListener("click", function () { honeycupNext(1); });
     if ($("btn-hc-rand")) $("btn-hc-rand").addEventListener("click", honeycupRandomForm);
     if ($("tp-jump")) $("tp-jump").addEventListener("change", function (e) { honeycupJumpForm(Number(e.target.value)); });
+    tpLoadUserIntoTemplates(); // 保存済みの取込フォームを「ユーザー取込」テンプレに復元
     buildTemplateList(); // テンプレ一覧を描画
     $("btn-finesse").addEventListener("click", startFinesse);
     if ($("btn-finesse-20s")) $("btn-finesse-20s").addEventListener("click", startFinesse20);
@@ -2738,33 +2811,25 @@
     const cr = $("btn-controls-reset");
     if (cr) cr.addEventListener("click", resetControls);
 
-    // 盤面保存 / インポート・エクスポート
-    $("btn-save").addEventListener("click", function () { saveCurrentTo(G.buildSlot); });
-    $("btn-savenew").addEventListener("click", saveAsNew);
-    $("btn-fumen").addEventListener("click", importFumen);
-    $("btn-fumen-steps").addEventListener("click", importFumenSteps);
-    $("btn-export").addEventListener("click", function () {
-      $("io-text").value = JSON.stringify(userStore);
-      flashHint("エクスポート: 下のテキストをコピーして保存してください。", false);
+    // テト譜取込 → テンプレ練習の自作フォーム ／ 取込フォームの共有(JSON)
+    if ($("btn-fumen")) $("btn-fumen").addEventListener("click", function () { importTemplateFromFumen(false); });
+    if ($("btn-fumen-steps")) $("btn-fumen-steps").addEventListener("click", function () { importTemplateFromFumen(true); });
+    if ($("btn-user-clear")) $("btn-user-clear").addEventListener("click", clearUserForms);
+    if ($("btn-export")) $("btn-export").addEventListener("click", function () {
+      const io = $("io-text"); if (io) io.value = JSON.stringify(tpLoadUserForms());
+      flashHint("取込フォームをJSON出力しました。コピーして保存/共有できます。", false);
     });
-    $("btn-import").addEventListener("click", function () {
-      const txt = $("io-text").value.trim();
-      if (!txt) { flashHint("インポートするJSONを貼り付けてください。", true); return; }
-      let obj;
-      try { obj = JSON.parse(txt); }
-      catch (e) { flashHint("JSONの解析に失敗しました。", true); return; }
-      if (!obj || typeof obj !== "object" || Array.isArray(obj)) { flashHint("テンプレJSONの形式が不正です。", true); return; }
-      let n = 0, skipped = 0, overwritten = 0;
-      Object.keys(obj).forEach(function (k) {
-        if (!validUserEntry(obj[k])) { skipped++; return; }
-        if (Object.prototype.hasOwnProperty.call(userStore, k)) overwritten++;
-        userStore[k] = obj[k]; n++;
-      });
-      saveUserStore(); buildMenu();
-      let m = n + "件のテンプレを取り込みました。";
-      if (overwritten) m += "（うち" + overwritten + "件は既存を上書き）";
-      if (skipped) m += " 不正な" + skipped + "件はスキップしました。";
-      flashHint(m, skipped > 0);
+    if ($("btn-import")) $("btn-import").addEventListener("click", function () {
+      const io = $("io-text"); const txt = io ? io.value.trim() : "";
+      if (!txt) { flashHint("インポートするJSON（取込フォーム配列）を貼り付けてください。", true); return; }
+      let arr; try { arr = JSON.parse(txt); } catch (e) { flashHint("JSONの解析に失敗しました。", true); return; }
+      if (!Array.isArray(arr)) { flashHint("形式が不正です（取込フォームの配列を指定）。", true); return; }
+      const valid = arr.filter(function (f) { return f && Array.isArray(f.grid) && f.grid.length; });
+      if (!valid.length) { flashHint("有効な取込フォームがありませんでした。", true); return; }
+      const stored = tpLoadUserForms();
+      valid.forEach(function (f) { stored.push({ grid: f.grid.map(String), comment: f.comment || "取込" }); });
+      tpSaveUserForms(stored); tpLoadUserIntoTemplates(); buildTemplateList();
+      flashHint(valid.length + " 件を「ユーザー取込」に追加しました。", false);
     });
 
     // タッチ操作

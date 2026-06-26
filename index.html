@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=48" />
+  <link rel="stylesheet" href="css/style.css?v=49" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v48</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v49</span></div>
   </header>
 
   <main class="layout">
@@ -95,21 +95,17 @@
       </div>
 
       <div class="panel">
-        <div class="panel-title">テンプレ保存・共有</div>
-        <button id="btn-save" class="ctrl-btn primary">現在の盤面を保存</button>
-        <button id="btn-savenew" class="ctrl-btn">新規テンプレとして保存</button>
-        <p class="note">未設定テンプレを選ぶ→フリーで組む or テト譜貼付→保存、でその枠が練習可能に。</p>
-
-        <div class="panel-title sub">テト譜(fumen)から登録</div>
+        <div class="panel-title">テト譜(fumen)から取込</div>
+        <p class="note">v115@… のテト譜を貼り付けて取込むと、上の「テンプレ練習」に<b>自作フォーム</b>として追加され、すぐ練習できます（灰=土台／色=置く目標）。</p>
         <textarea id="fumen-text" class="io-text" placeholder="v115@... を貼り付け"></textarea>
         <div class="io-row">
-          <button id="btn-fumen" class="ctrl-btn small">完成形で登録</button>
-          <button id="btn-fumen-steps" class="ctrl-btn small">手順で登録</button>
+          <button id="btn-fumen" class="ctrl-btn small primary">完成形を取込</button>
+          <button id="btn-fumen-steps" class="ctrl-btn small">全ページ取込</button>
         </div>
-        <p class="note">未設定枠を選んでから貼ると、その枠に登録。<b>完成形</b>=最終形を組む練習／<b>手順</b>=複数ページから1手ずつヒント。</p>
+        <button id="btn-user-clear" class="ctrl-btn small">取込フォームを全消去</button>
 
-        <div class="panel-title sub">JSONバックアップ</div>
-        <textarea id="io-text" class="io-text" placeholder="ここにJSONを貼り付けてインポート / エクスポートで出力"></textarea>
+        <div class="panel-title sub">取込フォームの共有(JSON)</div>
+        <textarea id="io-text" class="io-text" placeholder="エクスポートで出力 ／ JSON配列を貼ってインポート"></textarea>
         <div class="io-row">
           <button id="btn-export" class="ctrl-btn small">エクスポート</button>
           <button id="btn-import" class="ctrl-btn small">インポート</button>
@@ -154,16 +150,16 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=48"></script>
-  <script src="js/templates.js?v=48"></script>
-  <script src="js/catalog.js?v=48"></script>
-  <script src="js/catalog_data.js?v=48"></script>
-  <script src="js/fumen.js?v=48"></script>
-  <script src="js/honeycup.js?v=48"></script>
-  <script src="js/honeycup_patterns.js?v=48"></script>
-  <script src="js/templates_practice.js?v=48"></script>
-  <script src="js/finesse.js?v=48"></script>
-  <script src="js/app.js?v=48"></script>
+  <script src="js/engine.js?v=49"></script>
+  <script src="js/templates.js?v=49"></script>
+  <script src="js/catalog.js?v=49"></script>
+  <script src="js/catalog_data.js?v=49"></script>
+  <script src="js/fumen.js?v=49"></script>
+  <script src="js/honeycup.js?v=49"></script>
+  <script src="js/honeycup_patterns.js?v=49"></script>
+  <script src="js/templates_practice.js?v=49"></script>
+  <script src="js/finesse.js?v=49"></script>
+  <script src="js/app.js?v=49"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>
