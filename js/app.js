@@ -91,7 +91,7 @@
 
   // ---- ゲーム状態 ----
   const G = {
-    mode: "free",          // free | template | sprint | ultra | finesse（finesse は G.finesseTimed で20秒モード）
+    mode: "free",          // free | template | sprint | ultra | honeycup | finesse（finesse は G.finesseTimed で20秒モード）
     grid: E.emptyGrid(),
     active: null,          // {piece,rot,px,py}
     hold: null,
@@ -1588,6 +1588,7 @@
 
   function lockPiece() {
     if (G.mode === "finesse") { handleFinesseLock(); return; }
+    if (G.mode === "honeycup") { handleHoneycupLock(); return; }
     const a = G.active;
     pushHistory();
     // T-spin 判定（固定前の盤面で。Tの隅セルはT自身が占めないため pre-lock で正しい）
@@ -1793,6 +1794,7 @@
     G.finesseInputs = 0; G.finessePieces = 0; G.finessePerfect = 0; G.finesseAttempts = 0; G._finPiece = null;
     G.finesseTimed = false; G.timerStart = null; G.timedDone = false; G.sprintGoal = SPRINT_GOAL; // タイムアタック状態
     G.score = 0; G.combo = -1; G.b2b = false; // Ultraスコア状態（REN/Back-to-Back）
+    G.hcTarget = null; G.hcTargetKey = null; G.hcPrefillKey = null; G.hcDone = false; // はちみつ砲練習状態
     setTa(""); // ライブ表示クリア（フリー/テンプレ等では非表示。各モード開始時に再設定）
     clearHeld();
     // リマップ取得モードが残っていると入力が吸われ続けるので解除
@@ -2212,6 +2214,96 @@
     respawnFinesse();
   }
 
+  // ===== はちみつ砲 練習（tetrismaps版・8土台 / field型ビルド） =====
+  // データ: js/honeycup_full.js (window.TT_HC_FULL.setups)。grid: X=確定スタック(灰・土台prefill),
+  // I/L/O/Z/T/J/S=新規に置く目標ミノ, _=空。灰土台を初期配置→色の目標形を6ミノで組めば成功
+  // （占有一致で判定・ライン消去しない）。成功率順の8土台を前/次で切替。
+  const HC_FULL_SETUPS = (window.TT_HC_FULL && window.TT_HC_FULL.setups) || [];
+  const HC_GRAY = "#7a8290";
+  let hcPracIdx = 0;
+  function hcPieceColor(ch) { return (E.PIECES[ch] && E.PIECES[ch].color) || "#9aa7b5"; }
+  // gridを床接地でboardセルへ展開（末尾の空行は除去済）
+  function hcSetupCells(setup) {
+    const g = setup.grid, H = g.length, prefill = [], target = [];
+    for (let i = 0; i < H; i++) {
+      const boardRow = ROWS - H + i, row = g[i];
+      for (let c = 0; c < row.length && c < COLS; c++) {
+        const ch = row[c];
+        if (ch === "X") prefill.push([boardRow, c]);
+        else if (ch !== "_") target.push([boardRow, c, ch]);
+      }
+    }
+    return { prefill: prefill, target: target };
+  }
+  function setupHoneycupBoard() {
+    const setup = HC_FULL_SETUPS[hcPracIdx]; if (!setup) return;
+    G.grid = E.emptyGrid();
+    const pc = hcSetupCells(setup);
+    for (let i = 0; i < pc.prefill.length; i++) { const p = pc.prefill[i]; G.grid[p[0]][p[1]] = HC_GRAY; }
+    G.hcTarget = pc.target;
+    G.hcTargetKey = {}; for (let i = 0; i < pc.target.length; i++) G.hcTargetKey[pc.target[i][0] + "," + pc.target[i][1]] = pc.target[i][2];
+    G.hcPrefillKey = {}; for (let i = 0; i < pc.prefill.length; i++) G.hcPrefillKey[pc.prefill[i][0] + "," + pc.prefill[i][1]] = 1;
+    G.hcDone = false;
+    G.bag = []; G.queue = []; G.hold = null; G.canHold = true; G.history = [];
+    ensureQueue(6); spawnFromQueue();
+    updateHoneycupStatus();
+    render();
+  }
+  function updateHoneycupStatus() {
+    const setup = HC_FULL_SETUPS[hcPracIdx]; if (!setup) return;
+    const el = $("hc-status");
+    if (el) el.textContent = "土台 " + (hcPracIdx + 1) + " / " + HC_FULL_SETUPS.length +
+      "　｜　成功率 " + setup.percent + "%　｜　使用ミノ: " + setup.pieces;
+    modeLabel.textContent = "はちみつ砲 練習（土台" + (hcPracIdx + 1) + "/" + HC_FULL_SETUPS.length + "）";
+  }
+  function startHoneycup() {
+    if (!HC_FULL_SETUPS.length) { flashHint("はちみつ砲データが読み込めていません。", true); return; }
+    if (G.chain) G.chain.on = false;
+    G.mode = "honeycup"; G.template = null; resetCommon();
+    if (!(hcPracIdx >= 0 && hcPracIdx < HC_FULL_SETUPS.length)) hcPracIdx = 0;
+    setupHoneycupBoard();
+    flashHint("灰=土台(1巡目・配置済み)。薄い色の目標形を6ミノで組めば成功（ホールド可・ライン消去なし）。前/次の土台で8種を切替。", false);
+  }
+  function honeycupNext(d) {
+    if (!HC_FULL_SETUPS.length) return;
+    hcPracIdx = (hcPracIdx + d + HC_FULL_SETUPS.length) % HC_FULL_SETUPS.length;
+    if (G.mode !== "honeycup") { startHoneycup(); return; }
+    setupHoneycupBoard();
+  }
+  // 現盤面を集計: 土台以外の充填セルのうち、目標を埋めた数(filledTarget)と目標外(overflow)。
+  function honeycupCount() {
+    let overflow = 0, filledTarget = 0;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      if (!G.grid[r][c]) continue;
+      const k = r + "," + c;
+      if (G.hcPrefillKey && G.hcPrefillKey[k]) continue; // 土台(灰)
+      if (G.hcTargetKey && G.hcTargetKey[k]) filledTarget++; // 正しい新規セル
+      else overflow++;                                       // 目標外＝はみ出し
+    }
+    return { overflow: overflow, filledTarget: filledTarget };
+  }
+  function handleHoneycupLock() {
+    const a = G.active;
+    pushHistory();
+    E.lock(G.grid, a.piece, a.rot, a.px, a.py); // 盤面に固定（ライン消去しない＝形を保持）
+    G.pieces++;
+    G.active = null;
+    // 判定: 目標外を埋めたら「はみ出し」、目標を全部埋めたら成功。
+    const cnt = honeycupCount();
+    const overflow = cnt.overflow, filledTarget = cnt.filledTarget;
+    if (overflow > 0) {
+      flashHint("はみ出しました（目標の色形からズレ）。↩Undo(U)でやり直すか、リセット(R)を。", true);
+      render(); return;
+    }
+    if (filledTarget >= (G.hcTarget ? G.hcTarget.length : 0)) {
+      const setup = HC_FULL_SETUPS[hcPracIdx];
+      G.hcDone = true; sfx("perfect");
+      flashHint("✓ 完成！ はちみつ砲 土台" + (hcPracIdx + 1) + "（成功率 " + setup.percent + "%）。リセット(R)で再挑戦／「次の土台」で次へ。", false);
+      render(); return;
+    }
+    spawnFromQueue(); render();
+  }
+
   // ===== ヒント文 =====
   let hintTimer = null;
   function flashHint(msg, isErr) {
@@ -2258,6 +2350,19 @@
       for (let c = 0; c < COLS; c++) {
         if (G.grid[r][c]) roundedCell(bctx, c * CELL, r * CELL, CELL, G.grid[r][c]);
       }
+    }
+
+    // はちみつ砲 練習: 色の目標形(まだ置いていないセル)を薄く表示。練習の核なので常に表示。
+    if (G.mode === "honeycup" && G.hcTarget) {
+      bctx.save();
+      bctx.globalAlpha = 0.30;
+      for (let i = 0; i < G.hcTarget.length; i++) {
+        const r = G.hcTarget[i][0], c = G.hcTarget[i][1];
+        if (G.grid[r][c]) continue; // 既に置いたセルは実色で描画済み
+        bctx.fillStyle = hcPieceColor(G.hcTarget[i][2]);
+        bctx.fillRect(c * CELL + 4, r * CELL + 4, CELL - 8, CELL - 8);
+      }
+      bctx.restore();
     }
 
     // 手順型テンプレの目標(ヒント): 次の1手の置き場所。
@@ -2686,6 +2791,7 @@
     else if (G.mode === "template") resetTemplate();
     else if (G.mode === "sprint") startSprint();
     else if (G.mode === "ultra") startUltra();
+    else if (G.mode === "honeycup") startHoneycup();
     else if (G.mode === "finesse") { if (G.finesseTimed) startFinesse20(); else startFinesse(); }
     else startFree();
   }
@@ -2696,6 +2802,10 @@
     $("btn-free").addEventListener("click", startFree);
     if ($("btn-sprint")) $("btn-sprint").addEventListener("click", startSprint);
     if ($("btn-ultra")) $("btn-ultra").addEventListener("click", startUltra);
+    if ($("btn-honeycup")) $("btn-honeycup").addEventListener("click", startHoneycup);
+    if ($("btn-honeycup-2")) $("btn-honeycup-2").addEventListener("click", startHoneycup);
+    if ($("btn-hc-prev")) $("btn-hc-prev").addEventListener("click", function () { honeycupNext(-1); });
+    if ($("btn-hc-next")) $("btn-hc-next").addEventListener("click", function () { honeycupNext(1); });
     $("btn-finesse").addEventListener("click", startFinesse);
     if ($("btn-finesse-20s")) $("btn-finesse-20s").addEventListener("click", startFinesse20);
     $("btn-reset").addEventListener("click", doReset);
@@ -2973,5 +3083,13 @@
     finishUltra: function () { return finishUltra(); },
     scoreTest: function (spin, lines, isPC) { ultraAddScore(spin, lines, !!isPC); return { score: G.score, b2b: G.b2b, combo: G.combo }; },
     tick: function () { return updateTimedDisplay(typeof performance !== "undefined" ? performance.now() : 0); },
+  };
+  // はちみつ砲練習 検証用フック（無害）
+  window.__HC2 = {
+    setups: function () { return HC_FULL_SETUPS; },
+    idx: function () { return hcPracIdx; },
+    state: function () { return { mode: G.mode, idx: hcPracIdx, targetTotal: G.hcTarget ? G.hcTarget.length : 0, prefill: G.hcPrefillKey ? Object.keys(G.hcPrefillKey).length : 0, done: G.hcDone, count: honeycupCount() }; },
+    fillTarget: function () { if (!G.hcTarget) return false; for (let i = 0; i < G.hcTarget.length; i++) { const t = G.hcTarget[i]; G.grid[t[0]][t[1]] = hcPieceColor(t[2]); } return true; },
+    count: function () { return honeycupCount(); },
   };
 })();
