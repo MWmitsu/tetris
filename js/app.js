@@ -2013,9 +2013,12 @@
   function tpForms() { const t = tpCurTemplate(); return (t && t.forms) || []; }
   // gridを床接地でboardセルへ展開（上下の空行は除去済。20行を超える分は上端を切る）
   function hcSetupCells(form) {
-    const g = form.grid, H = g.length, prefill = [], target = [];
+    const g = form && form.grid;
+    if (!Array.isArray(g)) return { prefill: [], target: [] }; // 不正データ防御
+    const H = g.length, prefill = [], target = [];
     for (let i = 0; i < H; i++) {
-      const boardRow = ROWS - H + i; if (boardRow < 0) continue; const row = g[i];
+      const boardRow = ROWS - H + i; if (boardRow < 0 || boardRow >= ROWS) continue; // 盤外は無視
+      const row = g[i]; if (typeof row !== "string" && !Array.isArray(row)) continue;
       for (let c = 0; c < row.length && c < COLS; c++) {
         const ch = row[c];
         if (ch === "X") prefill.push([boardRow, c]);
@@ -2038,6 +2041,12 @@
     updateHoneycupStatus();
     render();
   }
+  function tpEscape(s) { return String(s == null ? "" : s).replace(/[&<>]/g, function (m) { return m === "&" ? "&amp;" : m === "<" ? "&lt;" : "&gt;"; }); }
+  function tpBestPct(t) { // テンプレ内フォームの最高成功率（無ければnull）
+    let best = null;
+    (t.forms || []).forEach(function (f) { if (f.percent != null && (best == null || f.percent > best)) best = f.percent; });
+    return best;
+  }
   // 8テンプレを一覧ボタンで描画（初回 buildUI で1回）
   function buildTemplateList() {
     const root = $("tp-list"); if (!root) return;
@@ -2047,7 +2056,9 @@
       const b = document.createElement("button");
       b.className = "tp-item" + (i === tpTmpl ? " active" : "");
       b.setAttribute("data-i", i);
-      b.innerHTML = "<b>" + t.title + "</b><small>" + t.forms.length + " 形</small>";
+      const bp = tpBestPct(t);
+      const sub = t.forms.length + " 形" + (bp != null ? "・最高" + bp + "%" : "");
+      b.innerHTML = "<b>" + tpEscape(t.title) + "</b><small>" + sub + "</small>";
       (function (idx) { b.addEventListener("click", function () { honeycupSelectTemplate(idx); }); })(i);
       root.appendChild(b);
     }
@@ -2058,6 +2069,22 @@
     for (let i = 0; i < items.length; i++) {
       items[i].classList.toggle("active", Number(items[i].getAttribute("data-i")) === tpTmpl);
     }
+  }
+  // 形ジャンプ用セレクタを現テンプレのフォームで再構築
+  function buildFormJump() {
+    const sel = $("tp-jump"); if (!sel) return;
+    const forms = tpForms();
+    let html = "";
+    for (let i = 0; i < forms.length; i++) {
+      const f = forms[i];
+      const pct = (f.percent != null) ? (" " + f.percent + "%") : "";
+      const cm = f.comment ? (" " + f.comment) : "";
+      let label = "形 " + (i + 1) + pct + cm;
+      if (label.length > 28) label = label.slice(0, 27) + "…";
+      html += '<option value="' + i + '">' + tpEscape(label) + "</option>";
+    }
+    sel.innerHTML = html;
+    sel.value = String(hcPracIdx);
   }
   function honeycupSelectTemplate(i) {
     if (!(i >= 0 && i < TP_TEMPLATES.length)) return;
@@ -2070,10 +2097,21 @@
     if (G.mode !== "honeycup") { startHoneycup(); return; }
     setupHoneycupBoard();
   }
+  // 盤面上に一瞬の達成演出を出す（CSSアニメ）
+  let _tpFlashTimer = null;
+  function showCompletion(msg) {
+    const el = $("tp-flash"); if (!el) return;
+    el.textContent = msg || "完成！";
+    el.classList.remove("show"); void el.offsetWidth; // アニメ再始動のためreflow
+    el.classList.add("show");
+    if (_tpFlashTimer) clearTimeout(_tpFlashTimer);
+    _tpFlashTimer = setTimeout(function () { el.classList.remove("show"); }, 950);
+  }
   function updateHoneycupStatus() {
     const t = tpCurTemplate(); const form = tpForms()[hcPracIdx];
     const fi = $("tp-formidx");
     if (fi) fi.textContent = t ? ((hcPracIdx + 1) + " / " + tpForms().length) : "— / —";
+    const sel = $("tp-jump"); if (sel && sel.value !== String(hcPracIdx)) sel.value = String(hcPracIdx);
     highlightTemplateList();
     if (!t || !form) return;
     const el = $("hc-status");
@@ -2091,8 +2129,9 @@
     G.mode = "honeycup"; G.template = null; resetCommon();
     if (!(tpTmpl >= 0 && tpTmpl < TP_TEMPLATES.length)) tpTmpl = 0;
     if (!(hcPracIdx >= 0 && hcPracIdx < tpForms().length)) hcPracIdx = 0;
+    buildFormJump(); // 現テンプレの形ジャンプ選択肢を再構築
     setupHoneycupBoard();
-    flashHint("灰=土台(配置済み)。薄い色の目標形を組めば成功（ホールド可・ライン消去なし）。「テンプレ」で種類、「形」で配置を切替。", false);
+    flashHint("灰=土台(配置済み)。薄い色の目標形を組めば成功（ホールド可・ライン消去なし）。一覧でテンプレ、形セレクタや◀▶で配置を切替。", false);
   }
   function honeycupNext(d) { // 形(form)切替
     const n = tpForms().length; if (!n) return;
@@ -2100,10 +2139,10 @@
     if (G.mode !== "honeycup") { startHoneycup(); return; }
     setupHoneycupBoard();
   }
-  function honeycupTemplate(d) { // テンプレ(種類)切替（形は先頭へ）
-    if (!TP_TEMPLATES.length) return;
-    tpTmpl = (tpTmpl + d + TP_TEMPLATES.length) % TP_TEMPLATES.length;
-    hcPracIdx = 0;
+  // 形ジャンプ（セレクタから直接移動）
+  function honeycupJumpForm(i) {
+    const n = tpForms().length; if (!n) return;
+    hcPracIdx = Math.max(0, Math.min(n - 1, i | 0));
     if (G.mode !== "honeycup") { startHoneycup(); return; }
     setupHoneycupBoard();
   }
@@ -2135,7 +2174,7 @@
     if (filledTarget >= (G.hcTarget ? G.hcTarget.length : 0)) {
       const t = tpCurTemplate(), form = tpForms()[hcPracIdx];
       const pct = (form && form.percent != null) ? ("（成功率 " + form.percent + "%）") : "";
-      G.hcDone = true; sfx("perfect");
+      G.hcDone = true; sfx("perfect"); showCompletion("✓ 完成！");
       flashHint("✓ 完成！ " + (t ? t.title : "") + " 形" + (hcPracIdx + 1) + pct + "。リセット(R)で再挑戦／「次の形」で次へ。", false);
       render(); return;
     }
@@ -2193,10 +2232,11 @@
     if (G.mode === "honeycup" && G.hcTarget) {
       bctx.save();
       for (let i = 0; i < G.hcTarget.length; i++) {
-        const r = G.hcTarget[i][0], c = G.hcTarget[i][1];
+        const r = G.hcTarget[i][0], c = G.hcTarget[i][1], ch = G.hcTarget[i][2];
+        if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue; // 盤外防御
         if (G.grid[r][c]) continue; // 既に置いたセルは実色で描画済み
         bctx.globalAlpha = 0.28;
-        bctx.fillStyle = hcPieceColor(G.hcTarget[i][2]);
+        bctx.fillStyle = hcPieceColor(ch);
         bctx.fillRect(c * CELL + 3, r * CELL + 3, CELL - 6, CELL - 6);
         bctx.globalAlpha = 0.5;
         bctx.strokeStyle = "rgba(255,255,255,0.35)";
@@ -2645,6 +2685,7 @@
     if ($("btn-hc-prev")) $("btn-hc-prev").addEventListener("click", function () { honeycupNext(-1); });
     if ($("btn-hc-next")) $("btn-hc-next").addEventListener("click", function () { honeycupNext(1); });
     if ($("btn-hc-rand")) $("btn-hc-rand").addEventListener("click", honeycupRandomForm);
+    if ($("tp-jump")) $("tp-jump").addEventListener("change", function (e) { honeycupJumpForm(Number(e.target.value)); });
     buildTemplateList(); // テンプレ一覧を描画
     $("btn-finesse").addEventListener("click", startFinesse);
     if ($("btn-finesse-20s")) $("btn-finesse-20s").addEventListener("click", startFinesse20);

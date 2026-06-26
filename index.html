@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=46" />
+  <link rel="stylesheet" href="css/style.css?v=47" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v46</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v47</span></div>
   </header>
 
   <main class="layout">
@@ -48,7 +48,10 @@
 
     <!-- 中央: 盤面 -->
     <section class="center">
-      <canvas id="board" width="300" height="600"></canvas>
+      <div class="board-wrap">
+        <canvas id="board" width="300" height="600"></canvas>
+        <div id="tp-flash" class="tp-flash"></div>
+      </div>
       <div id="ta-time" class="ta-time"></div>
       <div id="hint-text" class="hint">準備中…</div>
       <!-- タッチ操作（スマホ用） -->
@@ -74,12 +77,14 @@
 
       <div class="panel">
         <div class="panel-title">テンプレ練習（tetrismaps版・8種）</div>
+        <div class="tp-hint">💡 下の一覧からテンプレを選ぶと開始。◀▶や「形」セレクタで配置を切替。</div>
         <div id="tp-list" class="tp-list"><!-- JSで8テンプレを一覧表示 --></div>
         <div class="tp-nav">
-          <button id="btn-hc-prev" class="ctrl-btn small" title="前の形">◀ 前の形</button>
+          <button id="btn-hc-prev" class="ctrl-btn small" title="前の形">◀</button>
           <span id="tp-formidx" class="tp-formidx">— / —</span>
-          <button id="btn-hc-next" class="ctrl-btn small" title="次の形">次の形 ▶</button>
+          <button id="btn-hc-next" class="ctrl-btn small" title="次の形">▶</button>
         </div>
+        <select id="tp-jump" class="tp-jump" aria-label="形を選択"></select>
         <div class="io-row">
           <button id="btn-hc-rand" class="ctrl-btn small">🎲 ランダムな形</button>
           <button id="btn-honeycup-2" class="ctrl-btn small primary">この形をやり直す</button>
@@ -149,16 +154,16 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=46"></script>
-  <script src="js/templates.js?v=46"></script>
-  <script src="js/catalog.js?v=46"></script>
-  <script src="js/catalog_data.js?v=46"></script>
-  <script src="js/fumen.js?v=46"></script>
-  <script src="js/honeycup.js?v=46"></script>
-  <script src="js/honeycup_patterns.js?v=46"></script>
-  <script src="js/templates_practice.js?v=46"></script>
-  <script src="js/finesse.js?v=46"></script>
-  <script src="js/app.js?v=46"></script>
+  <script src="js/engine.js?v=47"></script>
+  <script src="js/templates.js?v=47"></script>
+  <script src="js/catalog.js?v=47"></script>
+  <script src="js/catalog_data.js?v=47"></script>
+  <script src="js/fumen.js?v=47"></script>
+  <script src="js/honeycup.js?v=47"></script>
+  <script src="js/honeycup_patterns.js?v=47"></script>
+  <script src="js/templates_practice.js?v=47"></script>
+  <script src="js/finesse.js?v=47"></script>
+  <script src="js/app.js?v=47"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>
