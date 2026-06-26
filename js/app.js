@@ -987,220 +987,6 @@
     }
     return rep;
   }
-  // ===== 簡易版はちみつ砲ガイド（決定木・honeycup_simple.json・既存機能と完全独立） =====
-  const hcSimple = { on: false, tree: null, map: null, currentId: null, selectedNextId: null, history: [], lastDecision: null };
-  const HC_SIMPLE_LEAVES = ["A1", "A2", "B1", "B2", "D1", "E1", "E2"]; // 葉（終端）ノード
-  function hcSimpleIsLeaf(id) { return HC_SIMPLE_LEAVES.indexOf(id) >= 0; }
-  function loadHoneycupSimpleTree(json) {
-    try { if (!json || typeof json !== "object" || !Array.isArray(json.nodes) || !json.start) return null; return json; } catch (e) { return null; }
-  }
-  function createHoneycupSimpleNodeMap(tree) {
-    const m = new Map();
-    if (tree && Array.isArray(tree.nodes)) tree.nodes.forEach(function (n) { if (n && n.id) m.set(n.id, n); });
-    return m;
-  }
-  function getHoneycupSimpleNodeById(tree, id) {
-    if (hcSimple.map && hcSimple.map.has(id)) return hcSimple.map.get(id);
-    if (!tree || !Array.isArray(tree.nodes)) return null;
-    for (let i = 0; i < tree.nodes.length; i++) if (tree.nodes[i].id === id) return tree.nodes[i];
-    return null;
-  }
-  function honeycupSimpleGridToGhostCells(grid) {
-    const out = [];
-    if (!Array.isArray(grid)) return out;
-    const H = grid.length;
-    for (let i = 0; i < H; i++) {
-      const row = grid[i] || "";
-      for (let j = 0; j < row.length && j < COLS; j++) {
-        const ch = row.charAt(j);
-        if (ch === ".") continue;
-        out.push({ x: j, y: ROWS - H + i, piece: ch });
-      }
-    }
-    return out;
-  }
-  function hcSimpleState() {
-    return { currentPiece: G.active ? G.active.piece : null, holdPiece: G.hold || null, nextQueue: (G.queue || []).slice() };
-  }
-  // 可視ミノ内の早さ index（hold＋current＋next）。見えなければ null。
-  function hcSimpleIdx(piece, state) {
-    const vis = [state.holdPiece, state.currentPiece].concat(state.nextQueue || []).filter(Boolean);
-    const i = vis.indexOf(piece); return i < 0 ? null : i;
-  }
-  // 基本条件を true / false / "unknown"（片方しか見えなければ unknown）
-  function hcSimpleEvalBasic(condition, state) {
-    const O = hcSimpleIdx("O", state), J = hcSimpleIdx("J", state), S = hcSimpleIdx("S", state), L = hcSimpleIdx("L", state), T = hcSimpleIdx("T", state);
-    switch (condition) {
-      case "O>J": return (O === null || J === null) ? "unknown" : (O < J);
-      case "J>O": return (O === null || J === null) ? "unknown" : (J < O);
-      case "S>L": return (S === null || L === null) ? "unknown" : (S < L);
-      case "L>S": return (S === null || L === null) ? "unknown" : (L < S);
-      case "T早め": return (T === null) ? "unknown" : (T <= 2);
-      case "T遅め": return (T === null) ? "unknown" : (T >= 3);
-      default: return "unknown";
-    }
-  }
-  // 解決済み分岐ルール（JSONのedgesをそのまま評価せず node.id ごとに明示）。候補集合＋理由を返す。
-  function hcSimpleCandidates(node, state) {
-    if (!node) return { cands: [], reason: "node無し" };
-    const id = node.id;
-    if (hcSimpleIsLeaf(id)) return { cands: [], reason: "葉（終端）" };
-    function T(c) { return hcSimpleEvalBasic(c, state) === true; }
-    let cands = [], reason = "";
-    if (id === "root") {
-      if (T("J>O")) { cands = ["C"]; reason = "J>O"; }
-      else if (T("O>J") && T("S>L")) { cands = ["A"]; reason = "O>J かつ S>L"; }
-      else if (T("O>J") && T("L>S")) { cands = ["B"]; reason = "O>J かつ L>S"; }
-      else if (T("O>J")) { cands = ["A", "B"]; reason = "O>J（S/L不明→A/Bランダム）"; }
-      else { reason = "O/Jの順序が不明（分岐保留）"; }
-    } else if (id === "A") {
-      if (T("T早め")) { cands = ["A1", "A2"]; reason = "T早め→A1/A2ランダム"; } else { reason = "T早めが未確定（分岐保留）"; }
-    } else if (id === "B") {
-      if (T("T遅め")) { cands = ["B1", "B2"]; reason = "T遅め→B1/B2ランダム"; } else { reason = "T遅めが未確定（分岐保留）"; }
-    } else if (id === "C") {
-      if (T("S>L")) { cands = ["D"]; reason = "S>L→D"; } else { cands = ["E"]; reason = "S>L以外→E（確定/フォールバック）"; }
-    } else if (id === "D") { cands = ["D1"]; reason = "確定→D1"; }
-    else if (id === "E") { cands = ["E1", "E2"]; reason = "E1/E2ランダム"; }
-    return { cands: cands, reason: reason };
-  }
-  // 次ノードを解決（既選択を維持／reroll時は再抽選）。葉や条件未確定なら null。
-  function hcSimpleResolveNextNode(node, state, reroll) {
-    if (!node || hcSimpleIsLeaf(node.id)) return null;
-    if (!reroll && hcSimple.selectedNextId) return hcSimple.selectedNextId;
-    const r = hcSimpleCandidates(node, state);
-    hcSimple.lastDecision = r.reason;
-    if (!r.cands.length) return null;
-    return r.cands[Math.floor(Math.random() * r.cands.length)];
-  }
-  // このnodeに関係する条件の判定を文字列化（UI表示用）
-  function hcSimpleJudgeStr(node, state) {
-    if (!node) return "";
-    const id = node.id; let conds = [];
-    if (id === "root") conds = ["O>J", "J>O", "S>L", "L>S"];
-    else if (id === "A") conds = ["T早め"];
-    else if (id === "B") conds = ["T遅め"];
-    else if (id === "C") conds = ["S>L"];
-    if (!conds.length) return "";
-    return conds.map(function (c) { const r = hcSimpleEvalBasic(c, state); return c + "=" + (r === true ? "true" : (r === false ? "false" : "unknown")); }).join(", ");
-  }
-  function drawHcSimpleGhost(ctx) {
-    if (!hcSimple.on || !hcSimple.tree || !hcSimple.currentId) return;
-    const node = getHoneycupSimpleNodeById(hcSimple.tree, hcSimple.currentId);
-    if (!node) return;
-    const cells = honeycupSimpleGridToGhostCells(node.grid);
-    ctx.save();
-    cells.forEach(function (gc) {
-      if (gc.y < 0 || gc.y >= ROWS || gc.x < 0 || gc.x >= COLS) return;
-      if (G.grid[gc.y] && G.grid[gc.y][gc.x]) return; // 既存ブロックがある所には描かない
-      let color, alpha;
-      if (gc.piece === "G") { color = "#9aa7b5"; alpha = 0.20; }       // 土台＝薄いグレー
-      else { color = (E.PIECES[gc.piece] || {}).color || "#8aa0b6"; alpha = 0.26; } // ミノ＝各色の半透明
-      ctx.globalAlpha = alpha; ctx.fillStyle = color;
-      ctx.fillRect(gc.x * CELL + 4, gc.y * CELL + 4, CELL - 8, CELL - 8);
-      ctx.globalAlpha = Math.min(0.5, alpha + 0.20); ctx.strokeStyle = color; ctx.lineWidth = 1.5; // 薄い枠線で現在ブロック/アクティブと見分け
-      ctx.strokeRect(gc.x * CELL + 4, gc.y * CELL + 4, CELL - 8, CELL - 8);
-    });
-    ctx.restore();
-  }
-  // ノード遷移時に盤面をクリアし、その段の目標形（node.grid）をきれいに表示する。
-  // 各nodeは「その段階の完成盤面（土台G＋ミノ）」の独立スナップショットのため、前段の設置ブロックを残すと
-  // 新ノードのゴーストと噛み合わず背景が崩れる。フリー中のみクリア（既存モードには影響しない）。
-  function hcSimpleClearBoard() {
-    if (!hcSimple.on || G.mode !== "free") return;
-    G.grid = E.emptyGrid();
-    G.over = false; G.hold = null; G.canHold = true;
-    G.bag = []; G.queue = [];
-    ensureQueue(6); spawnFromQueue();
-  }
-  function hcSimpleStart() {
-    if (!hcSimple.tree) { flashHint("簡易版ガイドのデータが読み込めませんでした（簡易版モードのみ無効）。", true); return; }
-    if (G.chain) G.chain.on = false;
-    if (G.mode !== "free") startFree(); // 既存オーバーレイと競合しないようフリーで重ねる
-    hcSimple.on = true; hcSimple.currentId = hcSimple.tree.start; hcSimple.selectedNextId = null; hcSimple.history = [];
-    const ms = hcSimple.tree.mapping_status || "";
-    const msNote = (ms.indexOf("CONFIRMED") >= 0) ? "（CONFIRMED：node↔canvas・条件はユーザー確認済み）" : ((ms.indexOf("DRAFT") >= 0) ? "（DRAFT＝位置は目安）" : "");
-    flashHint("簡易版はちみつ砲ガイド ON：背景の薄い形に沿って組み、『次の分岐へ進む』で進めます。" + msNote, false);
-    updateHcSimpleDebug(); render();
-  }
-  function hcSimpleOff() { hcSimple.on = false; updateHcSimpleDebug(); render(); flashHint("簡易版ガイド OFF（既存挙動に戻ります）。", false); }
-  function hcSimpleReset() { if (!hcSimple.tree) return; hcSimple.currentId = hcSimple.tree.start; hcSimple.selectedNextId = null; hcSimple.history = []; hcSimple.lastDecision = null; hcSimpleClearBoard(); updateHcSimpleStatus(); updateHcSimpleDebug(); render(); }
-  function hcSimpleNext() {
-    if (!hcSimple.on || !hcSimple.tree) return;
-    const node = getHoneycupSimpleNodeById(hcSimple.tree, hcSimple.currentId);
-    if (!node) return;
-    if (hcSimpleIsLeaf(node.id)) { flashHint("最終ガイドです。この形を組んで練習終了です。", false); updateHcSimpleStatus(); return; }
-    const to = hcSimpleResolveNextNode(node, hcSimpleState(), false);
-    if (!to) { flashHint("今の手駒（現在ミノ／ホールド／NEXT）では分岐が確定しません。条件を満たすミノ順を待つか『再抽選』を。", false); updateHcSimpleStatus(); updateHcSimpleDebug(); return; }
-    hcSimple.history.push(hcSimple.currentId); // 「戻る」用に履歴を積む
-    hcSimple.currentId = to; hcSimple.selectedNextId = null;
-    hcSimpleClearBoard(); // この段の目標形をきれいに表示（前段の設置ブロックを消す）
-    updateHcSimpleStatus(); updateHcSimpleDebug(); render();
-  }
-  function hcSimpleBack() {
-    if (!hcSimple.on || !hcSimple.tree) return;
-    if (!hcSimple.history.length) { flashHint("これ以上戻れません（開始地点です）。", false); return; }
-    const prev = hcSimple.history.pop();
-    if (prev) hcSimple.currentId = prev;
-    hcSimple.selectedNextId = null;
-    hcSimpleClearBoard(); // この段の目標形をきれいに表示
-    updateHcSimpleStatus(); updateHcSimpleDebug(); render();
-  }
-  function hcSimpleReroll() {
-    if (!hcSimple.on || !hcSimple.tree) return;
-    const node = getHoneycupSimpleNodeById(hcSimple.tree, hcSimple.currentId);
-    if (!node) return;
-    hcSimple.selectedNextId = hcSimpleResolveNextNode(node, hcSimpleState(), true); // 同じ候補群から選び直す（currentNodeは進めない）
-    updateHcSimpleStatus(); updateHcSimpleDebug();
-  }
-  function updateHcSimpleDebug() {
-    const el = $("hcs-debug"); if (!el) return;
-    const t = hcSimple.tree;
-    if (!t) { el.textContent = "簡易版ガイドデータ未読込（このモードのみ無効）。"; return; }
-    const node = getHoneycupSimpleNodeById(t, hcSimple.currentId);
-    const st = hcSimpleState();
-    const vis = [st.holdPiece, st.currentPiece].concat(st.nextQueue || []).filter(Boolean);
-    const L = [];
-    L.push("tree: " + t.title);
-    L.push("mapping_status: " + (t.mapping_status || ""));
-    L.push("mode: " + (hcSimple.on ? "ON" : "OFF") + " ／ currentNodeId: " + (hcSimple.currentId || "-"));
-    if (node) L.push("label: " + node.label + " / canvas: " + node.canvas);
-    L.push("visiblePieces: " + (vis.length ? vis.join(" ") : "-"));
-    ["O>J", "J>O", "S>L", "L>S", "T早め", "T遅め"].forEach(function (c) { const r = hcSimpleEvalBasic(c, st); L.push("  " + c + " = " + (r === true ? "true" : (r === false ? "false" : "unknown"))); });
-    if (node) { const r = hcSimpleCandidates(node, st); L.push("解決ルール: " + r.reason + " → 候補[" + r.cands.join(",") + "]"); }
-    L.push("selectedNextNodeId: " + (hcSimple.selectedNextId || "(未)"));
-    L.push("history: [" + hcSimple.history.join(" → ") + "]");
-    if (node) { L.push("fumen: " + (node.fumen || "")); L.push("grid:\n" + (node.grid || []).join("\n")); }
-    el.textContent = L.join("\n");
-  }
-  // 通常画面の常時ステータス（現在node・現在ミノ/ホールド/NEXT・次候補・判定・操作・終端）
-  function updateHcSimpleStatus() {
-    const el = $("hcs-status"); if (!el) return;
-    const t = hcSimple.tree;
-    let txt;
-    if (!t) txt = "簡易版ガイド：データ未読込（このモードのみ無効）";
-    else if (!hcSimple.on) txt = "簡易版ガイド：OFF（「簡易版ガイド ON」で開始）";
-    else {
-      const node = getHoneycupSimpleNodeById(t, hcSimple.currentId);
-      const st = hcSimpleState();
-      const L = [];
-      L.push("簡易版はちみつ砲ガイド：ON");
-      L.push("現在：" + (hcSimple.currentId || "-") + " / " + (node ? node.label : "-"));
-      L.push("現在ミノ：" + (st.currentPiece || "-") + " ／ ホールド：" + (st.holdPiece || "-") + " ／ NEXT：" + st.nextQueue.slice(0, 5).join(" "));
-      if (node && hcSimpleIsLeaf(node.id)) {
-        L.push("最終ガイドです。この形を組んで練習終了です。");
-      } else if (node) {
-        const r = hcSimpleCandidates(node, st);
-        L.push("次候補：" + (r.cands.length ? r.cands.join(" / ") : "（手駒待ち）") + (hcSimple.selectedNextId ? "　｜選択中：" + hcSimple.selectedNextId : ""));
-        const j = hcSimpleJudgeStr(node, st); if (j) L.push("判定：" + j);
-        L.push("操作：この形を組んだら「次へ」を押してください。");
-      }
-      const ms = t.mapping_status || "";
-      if (ms.indexOf("CONFIRMED") >= 0) L.push("簡易版ガイド：確認済みデータ(CONFIRMED)");
-      txt = L.join("\n");
-    }
-    if (el.__last === txt) return; // 変化時のみDOM更新
-    el.__last = txt; el.textContent = txt;
-  }
   function honeycupChainStart() {
     const t1 = setupByName(CHAIN_STEPS[0].name);
     if (!t1) { flashHint("通し練習の形が見つかりません。", true); return; }
@@ -2214,19 +2000,22 @@
     respawnFinesse();
   }
 
-  // ===== はちみつ砲 練習（tetrismaps版・8土台 / field型ビルド） =====
-  // データ: js/honeycup_full.js (window.TT_HC_FULL.setups)。grid: X=確定スタック(灰・土台prefill),
-  // I/L/O/Z/T/J/S=新規に置く目標ミノ, _=空。灰土台を初期配置→色の目標形を6ミノで組めば成功
-  // （占有一致で判定・ライン消去しない）。成功率順の8土台を前/次で切替。
-  const HC_FULL_SETUPS = (window.TT_HC_FULL && window.TT_HC_FULL.setups) || [];
+  // ===== テンプレ練習（tetrismaps版 New/コレクション / field型ビルド） =====
+  // データ: js/templates_practice.js (window.TT_TEMPLATES.templates[].forms[])。grid: X=確定スタック
+  // (灰・土台prefill), I/L/O/Z/T/J/S=新規に置く目標ミノ, _=空。灰土台を初期配置→色の目標形を組めば
+  // 成功（占有一致で判定・ライン消去しない）。テンプレ(種類)と形(各テンプレ内の配置)を前/次で切替。
+  const TP_TEMPLATES = (window.TT_TEMPLATES && window.TT_TEMPLATES.templates) || [];
   const HC_GRAY = "#7a8290";
-  let hcPracIdx = 0;
+  let tpTmpl = 0;     // テンプレ(種類)インデックス
+  let hcPracIdx = 0;  // 形(form)インデックス（現テンプレ内）
   function hcPieceColor(ch) { return (E.PIECES[ch] && E.PIECES[ch].color) || "#9aa7b5"; }
-  // gridを床接地でboardセルへ展開（末尾の空行は除去済）
-  function hcSetupCells(setup) {
-    const g = setup.grid, H = g.length, prefill = [], target = [];
+  function tpCurTemplate() { return TP_TEMPLATES[tpTmpl] || null; }
+  function tpForms() { const t = tpCurTemplate(); return (t && t.forms) || []; }
+  // gridを床接地でboardセルへ展開（上下の空行は除去済。20行を超える分は上端を切る）
+  function hcSetupCells(form) {
+    const g = form.grid, H = g.length, prefill = [], target = [];
     for (let i = 0; i < H; i++) {
-      const boardRow = ROWS - H + i, row = g[i];
+      const boardRow = ROWS - H + i; if (boardRow < 0) continue; const row = g[i];
       for (let c = 0; c < row.length && c < COLS; c++) {
         const ch = row[c];
         if (ch === "X") prefill.push([boardRow, c]);
@@ -2236,9 +2025,9 @@
     return { prefill: prefill, target: target };
   }
   function setupHoneycupBoard() {
-    const setup = HC_FULL_SETUPS[hcPracIdx]; if (!setup) return;
+    const form = tpForms()[hcPracIdx]; if (!form) return;
     G.grid = E.emptyGrid();
-    const pc = hcSetupCells(setup);
+    const pc = hcSetupCells(form);
     for (let i = 0; i < pc.prefill.length; i++) { const p = pc.prefill[i]; G.grid[p[0]][p[1]] = HC_GRAY; }
     G.hcTarget = pc.target;
     G.hcTargetKey = {}; for (let i = 0; i < pc.target.length; i++) G.hcTargetKey[pc.target[i][0] + "," + pc.target[i][1]] = pc.target[i][2];
@@ -2250,23 +2039,33 @@
     render();
   }
   function updateHoneycupStatus() {
-    const setup = HC_FULL_SETUPS[hcPracIdx]; if (!setup) return;
+    const t = tpCurTemplate(); const form = tpForms()[hcPracIdx]; if (!t || !form) return;
     const el = $("hc-status");
-    if (el) el.textContent = "土台 " + (hcPracIdx + 1) + " / " + HC_FULL_SETUPS.length +
-      "　｜　成功率 " + setup.percent + "%　｜　使用ミノ: " + setup.pieces;
-    modeLabel.textContent = "はちみつ砲 練習（土台" + (hcPracIdx + 1) + "/" + HC_FULL_SETUPS.length + "）";
+    const pct = (form.percent != null) ? ("　成功率 " + form.percent + "%") : "";
+    const pcs = form.pieces ? ("　ミノ:" + form.pieces) : "";
+    const cm = form.comment ? ("　" + form.comment) : "";
+    if (el) el.textContent = "【" + t.title + "】 形 " + (hcPracIdx + 1) + " / " + tpForms().length + pct + pcs + cm;
+    modeLabel.textContent = "テンプレ練習：" + t.title + "（" + (hcPracIdx + 1) + "/" + tpForms().length + "）";
   }
   function startHoneycup() {
-    if (!HC_FULL_SETUPS.length) { flashHint("はちみつ砲データが読み込めていません。", true); return; }
+    if (!TP_TEMPLATES.length) { flashHint("テンプレ練習データが読み込めていません。", true); return; }
     if (G.chain) G.chain.on = false;
     G.mode = "honeycup"; G.template = null; resetCommon();
-    if (!(hcPracIdx >= 0 && hcPracIdx < HC_FULL_SETUPS.length)) hcPracIdx = 0;
+    if (!(tpTmpl >= 0 && tpTmpl < TP_TEMPLATES.length)) tpTmpl = 0;
+    if (!(hcPracIdx >= 0 && hcPracIdx < tpForms().length)) hcPracIdx = 0;
     setupHoneycupBoard();
-    flashHint("灰=土台(1巡目・配置済み)。薄い色の目標形を6ミノで組めば成功（ホールド可・ライン消去なし）。前/次の土台で8種を切替。", false);
+    flashHint("灰=土台(配置済み)。薄い色の目標形を組めば成功（ホールド可・ライン消去なし）。「テンプレ」で種類、「形」で配置を切替。", false);
   }
-  function honeycupNext(d) {
-    if (!HC_FULL_SETUPS.length) return;
-    hcPracIdx = (hcPracIdx + d + HC_FULL_SETUPS.length) % HC_FULL_SETUPS.length;
+  function honeycupNext(d) { // 形(form)切替
+    const n = tpForms().length; if (!n) return;
+    hcPracIdx = (hcPracIdx + d + n) % n;
+    if (G.mode !== "honeycup") { startHoneycup(); return; }
+    setupHoneycupBoard();
+  }
+  function honeycupTemplate(d) { // テンプレ(種類)切替（形は先頭へ）
+    if (!TP_TEMPLATES.length) return;
+    tpTmpl = (tpTmpl + d + TP_TEMPLATES.length) % TP_TEMPLATES.length;
+    hcPracIdx = 0;
     if (G.mode !== "honeycup") { startHoneycup(); return; }
     setupHoneycupBoard();
   }
@@ -2296,9 +2095,10 @@
       render(); return;
     }
     if (filledTarget >= (G.hcTarget ? G.hcTarget.length : 0)) {
-      const setup = HC_FULL_SETUPS[hcPracIdx];
+      const t = tpCurTemplate(), form = tpForms()[hcPracIdx];
+      const pct = (form && form.percent != null) ? ("（成功率 " + form.percent + "%）") : "";
       G.hcDone = true; sfx("perfect");
-      flashHint("✓ 完成！ はちみつ砲 土台" + (hcPracIdx + 1) + "（成功率 " + setup.percent + "%）。リセット(R)で再挑戦／「次の土台」で次へ。", false);
+      flashHint("✓ 完成！ " + (t ? t.title : "") + " 形" + (hcPracIdx + 1) + pct + "。リセット(R)で再挑戦／「次の形」で次へ。", false);
       render(); return;
     }
     spawnFromQueue(); render();
@@ -2338,7 +2138,6 @@
     if (statTspin) statTspin.textContent = G.tspins;
     if (statCycle) statCycle.textContent = G.cycles;
     updateHcDebug();
-    updateHcSimpleStatus();
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";
@@ -2424,9 +2223,6 @@
         }
       }
     }
-
-    // 簡易版はちみつ砲ガイド（決定木）の背景ゴースト（ON かつ フリー中のみ・既存オーバーレイと競合しない）
-    if (hcSimple.on && G.mode === "free") drawHcSimpleGhost(bctx);
 
     // ゴースト & アクティブ
     if (G.active) {
@@ -2806,6 +2602,8 @@
     if ($("btn-honeycup-2")) $("btn-honeycup-2").addEventListener("click", startHoneycup);
     if ($("btn-hc-prev")) $("btn-hc-prev").addEventListener("click", function () { honeycupNext(-1); });
     if ($("btn-hc-next")) $("btn-hc-next").addEventListener("click", function () { honeycupNext(1); });
+    if ($("btn-tp-tprev")) $("btn-tp-tprev").addEventListener("click", function () { honeycupTemplate(-1); });
+    if ($("btn-tp-tnext")) $("btn-tp-tnext").addEventListener("click", function () { honeycupTemplate(1); });
     $("btn-finesse").addEventListener("click", startFinesse);
     if ($("btn-finesse-20s")) $("btn-finesse-20s").addEventListener("click", startFinesse20);
     $("btn-reset").addEventListener("click", doReset);
@@ -2819,18 +2617,6 @@
     if ($("btn-drill")) $("btn-drill").addEventListener("click", startDrill);
     if ($("btn-chain")) $("btn-chain").addEventListener("click", honeycupChainStart);
     if ($("btn-hc-report")) $("btn-hc-report").addEventListener("click", showValidationReport);
-    // 簡易版はちみつ砲ガイド（決定木）：データ読込＋ボタン配線（読込失敗でもアプリは落とさない）
-    hcSimple.tree = loadHoneycupSimpleTree(window.TT_HC_SIMPLE);
-    hcSimple.map = createHoneycupSimpleNodeMap(hcSimple.tree);
-    if (hcSimple.tree) hcSimple.currentId = hcSimple.tree.start;
-    if ($("btn-hcs-start")) $("btn-hcs-start").addEventListener("click", hcSimpleStart);
-    if ($("btn-hcs-off")) $("btn-hcs-off").addEventListener("click", hcSimpleOff);
-    if ($("btn-hcs-reset")) $("btn-hcs-reset").addEventListener("click", hcSimpleReset);
-    if ($("btn-hcs-next")) $("btn-hcs-next").addEventListener("click", hcSimpleNext);
-    if ($("btn-hcs-back")) $("btn-hcs-back").addEventListener("click", hcSimpleBack);
-    if ($("btn-hcs-reroll")) $("btn-hcs-reroll").addEventListener("click", hcSimpleReroll);
-    updateHcSimpleDebug();
-    updateHcSimpleStatus();
     updateMasteryUI();
 
     // テンプレ一覧（手順型 built-in + カタログ + カスタム）
@@ -3084,11 +2870,13 @@
     scoreTest: function (spin, lines, isPC) { ultraAddScore(spin, lines, !!isPC); return { score: G.score, b2b: G.b2b, combo: G.combo }; },
     tick: function () { return updateTimedDisplay(typeof performance !== "undefined" ? performance.now() : 0); },
   };
-  // はちみつ砲練習 検証用フック（無害）
+  // テンプレ練習 検証用フック（無害）
   window.__HC2 = {
-    setups: function () { return HC_FULL_SETUPS; },
+    templates: function () { return TP_TEMPLATES.map(function (t) { return { id: t.id, title: t.title, forms: t.forms.length, total: t.total }; }); },
+    tmplIdx: function () { return tpTmpl; },
     idx: function () { return hcPracIdx; },
-    state: function () { return { mode: G.mode, idx: hcPracIdx, targetTotal: G.hcTarget ? G.hcTarget.length : 0, prefill: G.hcPrefillKey ? Object.keys(G.hcPrefillKey).length : 0, done: G.hcDone, count: honeycupCount() }; },
+    setTemplate: function (i) { tpTmpl = i; hcPracIdx = 0; startHoneycup(); },
+    state: function () { return { mode: G.mode, tmpl: tpTmpl, idx: hcPracIdx, targetTotal: G.hcTarget ? G.hcTarget.length : 0, prefill: G.hcPrefillKey ? Object.keys(G.hcPrefillKey).length : 0, done: G.hcDone, count: honeycupCount() }; },
     fillTarget: function () { if (!G.hcTarget) return false; for (let i = 0; i < G.hcTarget.length; i++) { const t = G.hcTarget[i]; G.grid[t[0]][t[1]] = hcPieceColor(t[2]); } return true; },
     count: function () { return honeycupCount(); },
   };

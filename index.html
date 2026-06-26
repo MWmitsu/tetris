@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=44" />
+  <link rel="stylesheet" href="css/style.css?v=45" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v44</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v45</span></div>
   </header>
 
   <main class="layout">
@@ -38,7 +38,7 @@
         <button id="btn-free" class="ctrl-btn">フリー</button>
         <button id="btn-sprint" class="ctrl-btn">40LINE</button>
         <button id="btn-ultra" class="ctrl-btn">Ultra (3分)</button>
-        <button id="btn-honeycup" class="ctrl-btn">はちみつ砲</button>
+        <button id="btn-honeycup" class="ctrl-btn">テンプレ練習</button>
         <button id="btn-finesse" class="ctrl-btn">最適化</button>
         <button id="btn-finesse-20s" class="ctrl-btn">最適化 20秒</button>
         <button id="btn-reset" class="ctrl-btn primary">リセット (R)</button>
@@ -73,34 +73,18 @@
       </div>
 
       <div class="panel">
-        <div class="panel-title">はちみつ砲 練習（土台8種・tetrismaps版）</div>
-        <button id="btn-honeycup-2" class="ctrl-btn primary">はちみつ砲 練習 開始</button>
+        <div class="panel-title">テンプレ練習（tetrismaps版・8種）</div>
+        <button id="btn-honeycup-2" class="ctrl-btn primary">テンプレ練習 開始</button>
         <div class="io-row">
-          <button id="btn-hc-prev" class="ctrl-btn small">◀ 前の土台</button>
-          <button id="btn-hc-next" class="ctrl-btn small">次の土台 ▶</button>
-        </div>
-        <div id="hc-status" class="note" style="white-space:pre-wrap;font-size:12px;line-height:1.55;margin:6px 0;padding:6px 8px;background:rgba(255,255,255,0.04);border-radius:6px">土台を選んで開始</div>
-        <p class="note"><b>灰</b>=土台(1巡目・配置済み)、<b>色</b>=これから置くミノ(2巡目)。薄い色の目標形を6ミノで組めば成功（ホールド可・ライン消去なし）。成功率順に8土台を「前/次の土台」で切替。</p>
-      </div>
-
-      <div class="panel">
-        <div class="panel-title">簡易版はちみつ砲ガイド（決定木・CONFIRMED）</div>
-        <button id="btn-hcs-start" class="ctrl-btn primary">簡易版ガイド ON（開始）</button>
-        <div id="hcs-status" class="note" style="white-space:pre-wrap;font-size:12px;line-height:1.55;margin:6px 0;padding:6px 8px;background:rgba(255,255,255,0.04);border-radius:6px">簡易版ガイド：OFF（「簡易版ガイド ON（開始）」で開始）</div>
-        <div class="io-row">
-          <button id="btn-hcs-next" class="ctrl-btn small primary">次の分岐へ進む</button>
-          <button id="btn-hcs-back" class="ctrl-btn small">1つ戻る</button>
+          <button id="btn-tp-tprev" class="ctrl-btn small">◀ テンプレ</button>
+          <button id="btn-tp-tnext" class="ctrl-btn small">テンプレ ▶</button>
         </div>
         <div class="io-row">
-          <button id="btn-hcs-reroll" class="ctrl-btn small">候補を再抽選</button>
-          <button id="btn-hcs-reset" class="ctrl-btn small">最初から</button>
+          <button id="btn-hc-prev" class="ctrl-btn small">◀ 前の形</button>
+          <button id="btn-hc-next" class="ctrl-btn small">次の形 ▶</button>
         </div>
-        <button id="btn-hcs-off" class="ctrl-btn small">簡易ガイドOFF</button>
-        <p class="note">決定木に沿って次の形を背景に薄く表示。現在ミノ/ホールド/NEXTで分岐を判定（手動進行）。<b>各ノードはその段の完成盤面なので、次へ/戻る/最初からで盤面をリセットして目標形だけを表示</b>します。フリーモードに重ねて表示します（ONのときだけ）。</p>
-        <details class="ctrl-sec">
-          <summary class="panel-title" style="cursor:pointer">簡易版ガイドデバッグ（詳細）</summary>
-          <div id="hcs-debug" class="note" style="white-space:pre-wrap;font-family:monospace;font-size:11px;line-height:1.45">（簡易版ガイドON時に表示）</div>
-        </details>
+        <div id="hc-status" class="note" style="white-space:pre-wrap;font-size:12px;line-height:1.55;margin:6px 0;padding:6px 8px;background:rgba(255,255,255,0.04);border-radius:6px">テンプレと形を選んで開始</div>
+        <p class="note"><b>灰</b>=土台(配置済み)、<b>色</b>=これから置くミノ。薄い色の目標形を組めば成功（ホールド可・ライン消去なし）。「テンプレ」で種類、「形」で各テンプレ内の配置を切替（はちみつ砲/開幕DT砲/ガムシロ/開幕TSD/合掌TSD/開幕パフェ/山岳/迷走）。</p>
       </div>
 
       <div class="panel">
@@ -163,17 +147,16 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=44"></script>
-  <script src="js/templates.js?v=44"></script>
-  <script src="js/catalog.js?v=44"></script>
-  <script src="js/catalog_data.js?v=44"></script>
-  <script src="js/fumen.js?v=44"></script>
-  <script src="js/honeycup.js?v=44"></script>
-  <script src="js/honeycup_patterns.js?v=44"></script>
-  <script src="js/honeycup_simple.js?v=44"></script>
-  <script src="js/honeycup_full.js?v=44"></script>
-  <script src="js/finesse.js?v=44"></script>
-  <script src="js/app.js?v=44"></script>
+  <script src="js/engine.js?v=45"></script>
+  <script src="js/templates.js?v=45"></script>
+  <script src="js/catalog.js?v=45"></script>
+  <script src="js/catalog_data.js?v=45"></script>
+  <script src="js/fumen.js?v=45"></script>
+  <script src="js/honeycup.js?v=45"></script>
+  <script src="js/honeycup_patterns.js?v=45"></script>
+  <script src="js/templates_practice.js?v=45"></script>
+  <script src="js/finesse.js?v=45"></script>
+  <script src="js/app.js?v=45"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>
