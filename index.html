@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=45" />
+  <link rel="stylesheet" href="css/style.css?v=46" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v45</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v46</span></div>
   </header>
 
   <main class="layout">
@@ -74,17 +74,19 @@
 
       <div class="panel">
         <div class="panel-title">テンプレ練習（tetrismaps版・8種）</div>
-        <button id="btn-honeycup-2" class="ctrl-btn primary">テンプレ練習 開始</button>
-        <div class="io-row">
-          <button id="btn-tp-tprev" class="ctrl-btn small">◀ テンプレ</button>
-          <button id="btn-tp-tnext" class="ctrl-btn small">テンプレ ▶</button>
+        <div id="tp-list" class="tp-list"><!-- JSで8テンプレを一覧表示 --></div>
+        <div class="tp-nav">
+          <button id="btn-hc-prev" class="ctrl-btn small" title="前の形">◀ 前の形</button>
+          <span id="tp-formidx" class="tp-formidx">— / —</span>
+          <button id="btn-hc-next" class="ctrl-btn small" title="次の形">次の形 ▶</button>
         </div>
         <div class="io-row">
-          <button id="btn-hc-prev" class="ctrl-btn small">◀ 前の形</button>
-          <button id="btn-hc-next" class="ctrl-btn small">次の形 ▶</button>
+          <button id="btn-hc-rand" class="ctrl-btn small">🎲 ランダムな形</button>
+          <button id="btn-honeycup-2" class="ctrl-btn small primary">この形をやり直す</button>
         </div>
-        <div id="hc-status" class="note" style="white-space:pre-wrap;font-size:12px;line-height:1.55;margin:6px 0;padding:6px 8px;background:rgba(255,255,255,0.04);border-radius:6px">テンプレと形を選んで開始</div>
-        <p class="note"><b>灰</b>=土台(配置済み)、<b>色</b>=これから置くミノ。薄い色の目標形を組めば成功（ホールド可・ライン消去なし）。「テンプレ」で種類、「形」で各テンプレ内の配置を切替（はちみつ砲/開幕DT砲/ガムシロ/開幕TSD/合掌TSD/開幕パフェ/山岳/迷走）。</p>
+        <div id="hc-status" class="note tp-status">上の一覧からテンプレを選ぶと開始します。</div>
+        <div class="tp-legend"><span class="sw sw-base"></span>土台（配置済み）<span class="sw sw-target"></span>置く目標（薄い色）</div>
+        <p class="note">薄い色の<b>目標形</b>を組めば成功（ホールド可・ライン消去なし）。R＝同じ形をやり直し。はちみつ砲は形1が「1巡目の土台」です。</p>
       </div>
 
       <div class="panel">
@@ -147,16 +149,16 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=45"></script>
-  <script src="js/templates.js?v=45"></script>
-  <script src="js/catalog.js?v=45"></script>
-  <script src="js/catalog_data.js?v=45"></script>
-  <script src="js/fumen.js?v=45"></script>
-  <script src="js/honeycup.js?v=45"></script>
-  <script src="js/honeycup_patterns.js?v=45"></script>
-  <script src="js/templates_practice.js?v=45"></script>
-  <script src="js/finesse.js?v=45"></script>
-  <script src="js/app.js?v=45"></script>
+  <script src="js/engine.js?v=46"></script>
+  <script src="js/templates.js?v=46"></script>
+  <script src="js/catalog.js?v=46"></script>
+  <script src="js/catalog_data.js?v=46"></script>
+  <script src="js/fumen.js?v=46"></script>
+  <script src="js/honeycup.js?v=46"></script>
+  <script src="js/honeycup_patterns.js?v=46"></script>
+  <script src="js/templates_practice.js?v=46"></script>
+  <script src="js/finesse.js?v=46"></script>
+  <script src="js/app.js?v=46"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>

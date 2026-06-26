@@ -1,19 +1,21 @@
 // テンプレ練習データ — tetrismaps版(New/コレクション)を実fumenデコーダで復元・統合
 // forms[].grid: I/L/O/Z/T/J/S=新規に置く目標ミノ / X=確定スタック(灰・土台prefill) / _=空。床接地。
-// percent=成功率(無=null), pieces=使用ミノ, comment=注記。色セルは%4==0(=ちょうどNミノ)・8セル以上のみ採用・重複除去・上限80。
+// percent=成功率(無=null), pieces=使用ミノ, comment=注記。色セルは%4==0(ちょうどNミノ)・8セル以上のみ・重複除去・上限80。
+// はちみつ砲は先頭に『1巡目の土台(空から組む)』、以降は2巡目setup_variant。
 (function () {
   window.TT_TEMPLATES = { templates: [
     {
-      id: "honeycup", title: "はちみつ砲", source: "https://w.atwiki.jp/tetrismaps/pages/248.html", total: 8,
+      id: "honeycup", title: "はちみつ砲", source: "https://w.atwiki.jp/tetrismaps/pages/248.html", total: 9,
       forms: [
-        { grid: ["IIII______", "JJSS__OO__", "JSS___OOLX", "JXX_ZZLLLX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 96.87, pieces: "L, J", comment: "96.87% (L, J)" },
-        { grid: ["ILLL______", "ILSS__JJ__", "ISS___JOOX", "IXX_ZZJOOX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 96.87, pieces: "S、O", comment: "96.87%（S、O）" },
-        { grid: ["IJJJ______", "IOOJ__LS__", "IOO___LSSX", "IXX_ZZLLSX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 96.87, pieces: "L、O", comment: "96.87%（L、O）" },
-        { grid: ["LL________", "IL________", "ILSS__JJ__", "ISS___JOOX", "IXX_ZZJOOX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 95.91, pieces: "I、O", comment: "95.91%（I、O）" },
-        { grid: ["_________J", "I________J", "I_SS__OOJJ", "ISS___OOLX", "IXX_ZZLLLX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 84.33, pieces: "L", comment: "84.33%（L）" },
-        { grid: ["_______S__", "_______SS_", "IIII__JJS_", "LLL___JOOX", "LXX_ZZJOOX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 84.25, pieces: "L、O→J", comment: "84.25%（L、O→J）" },
-        { grid: ["________OO", "I_______OO", "I_SS__L_JJ", "ISS___L_JX", "IXX_ZZLLJX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 70.63, pieces: "J", comment: "70.63%（J）" },
-        { grid: ["______I__L", "JJSS__ILLL", "JSS___IOOX", "JXX_ZZIOOX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 70.04, pieces: "Z、O", comment: "70.04%（Z、O）" },
+        { grid: ["_________J", "_SS______J", "SSL____TJJ", "LLL_ZZTTOO", "IIII_ZZTOO"], percent: null, pieces: "", comment: "1巡目の土台（空から組む）" },
+        { grid: ["IIII______", "JJSS__OO__", "JSS___OOLX", "JXX_ZZLLLX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 96.87, pieces: "L, J", comment: "96.87% (L, J) ※2巡目" },
+        { grid: ["ILLL______", "ILSS__JJ__", "ISS___JOOX", "IXX_ZZJOOX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 96.87, pieces: "S、O", comment: "96.87%（S、O） ※2巡目" },
+        { grid: ["IJJJ______", "IOOJ__LS__", "IOO___LSSX", "IXX_ZZLLSX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 96.87, pieces: "L、O", comment: "96.87%（L、O） ※2巡目" },
+        { grid: ["LL________", "IL________", "ILSS__JJ__", "ISS___JOOX", "IXX_ZZJOOX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 95.91, pieces: "I、O", comment: "95.91%（I、O） ※2巡目" },
+        { grid: ["_________J", "I________J", "I_SS__OOJJ", "ISS___OOLX", "IXX_ZZLLLX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 84.33, pieces: "L", comment: "84.33%（L） ※2巡目" },
+        { grid: ["_______S__", "_______SS_", "IIII__JJS_", "LLL___JOOX", "LXX_ZZJOOX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 84.25, pieces: "L、O→J", comment: "84.25%（L、O→J） ※2巡目" },
+        { grid: ["________OO", "I_______OO", "I_SS__L_JJ", "ISS___L_JX", "IXX_ZZLLJX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 70.63, pieces: "J", comment: "70.63%（J） ※2巡目" },
+        { grid: ["______I__L", "JJSS__ILLL", "JSS___IOOX", "JXX_ZZIOOX", "XXX__ZZXXX", "XXX_XXXXXX", "XXXX_XXXXX"], percent: 70.04, pieces: "Z、O", comment: "70.04%（Z、O） ※2巡目" },
       ],
     },
     {

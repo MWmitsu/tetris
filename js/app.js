@@ -2038,13 +2038,51 @@
     updateHoneycupStatus();
     render();
   }
+  // 8テンプレを一覧ボタンで描画（初回 buildUI で1回）
+  function buildTemplateList() {
+    const root = $("tp-list"); if (!root) return;
+    root.innerHTML = "";
+    for (let i = 0; i < TP_TEMPLATES.length; i++) {
+      const t = TP_TEMPLATES[i];
+      const b = document.createElement("button");
+      b.className = "tp-item" + (i === tpTmpl ? " active" : "");
+      b.setAttribute("data-i", i);
+      b.innerHTML = "<b>" + t.title + "</b><small>" + t.forms.length + " 形</small>";
+      (function (idx) { b.addEventListener("click", function () { honeycupSelectTemplate(idx); }); })(i);
+      root.appendChild(b);
+    }
+  }
+  function highlightTemplateList() {
+    const root = $("tp-list"); if (!root) return;
+    const items = root.querySelectorAll(".tp-item");
+    for (let i = 0; i < items.length; i++) {
+      items[i].classList.toggle("active", Number(items[i].getAttribute("data-i")) === tpTmpl);
+    }
+  }
+  function honeycupSelectTemplate(i) {
+    if (!(i >= 0 && i < TP_TEMPLATES.length)) return;
+    tpTmpl = i; hcPracIdx = 0;
+    startHoneycup();
+  }
+  function honeycupRandomForm() {
+    const n = tpForms().length; if (!n) return;
+    hcPracIdx = Math.floor(Math.random() * n);
+    if (G.mode !== "honeycup") { startHoneycup(); return; }
+    setupHoneycupBoard();
+  }
   function updateHoneycupStatus() {
-    const t = tpCurTemplate(); const form = tpForms()[hcPracIdx]; if (!t || !form) return;
+    const t = tpCurTemplate(); const form = tpForms()[hcPracIdx];
+    const fi = $("tp-formidx");
+    if (fi) fi.textContent = t ? ((hcPracIdx + 1) + " / " + tpForms().length) : "— / —";
+    highlightTemplateList();
+    if (!t || !form) return;
     const el = $("hc-status");
     const pct = (form.percent != null) ? ("　成功率 " + form.percent + "%") : "";
-    const pcs = form.pieces ? ("　ミノ:" + form.pieces) : "";
-    const cm = form.comment ? ("　" + form.comment) : "";
-    if (el) el.textContent = "【" + t.title + "】 形 " + (hcPracIdx + 1) + " / " + tpForms().length + pct + pcs + cm;
+    const line1 = "【" + t.title + "】 形 " + (hcPracIdx + 1) + " / " + tpForms().length + pct;
+    const line2parts = [];
+    if (form.pieces) line2parts.push("使用ミノ: " + form.pieces);
+    if (form.comment) line2parts.push(form.comment);
+    if (el) el.textContent = line1 + (line2parts.length ? "\n" + line2parts.join("　") : "");
     modeLabel.textContent = "テンプレ練習：" + t.title + "（" + (hcPracIdx + 1) + "/" + tpForms().length + "）";
   }
   function startHoneycup() {
@@ -2151,15 +2189,19 @@
       }
     }
 
-    // はちみつ砲 練習: 色の目標形(まだ置いていないセル)を薄く表示。練習の核なので常に表示。
+    // テンプレ練習: 色の目標形(まだ置いていないセル)を薄く＋細枠で表示。練習の核なので常に表示。
     if (G.mode === "honeycup" && G.hcTarget) {
       bctx.save();
-      bctx.globalAlpha = 0.30;
       for (let i = 0; i < G.hcTarget.length; i++) {
         const r = G.hcTarget[i][0], c = G.hcTarget[i][1];
         if (G.grid[r][c]) continue; // 既に置いたセルは実色で描画済み
+        bctx.globalAlpha = 0.28;
         bctx.fillStyle = hcPieceColor(G.hcTarget[i][2]);
-        bctx.fillRect(c * CELL + 4, r * CELL + 4, CELL - 8, CELL - 8);
+        bctx.fillRect(c * CELL + 3, r * CELL + 3, CELL - 6, CELL - 6);
+        bctx.globalAlpha = 0.5;
+        bctx.strokeStyle = "rgba(255,255,255,0.35)";
+        bctx.lineWidth = 1;
+        bctx.strokeRect(c * CELL + 3.5, r * CELL + 3.5, CELL - 7, CELL - 7);
       }
       bctx.restore();
     }
@@ -2602,8 +2644,8 @@
     if ($("btn-honeycup-2")) $("btn-honeycup-2").addEventListener("click", startHoneycup);
     if ($("btn-hc-prev")) $("btn-hc-prev").addEventListener("click", function () { honeycupNext(-1); });
     if ($("btn-hc-next")) $("btn-hc-next").addEventListener("click", function () { honeycupNext(1); });
-    if ($("btn-tp-tprev")) $("btn-tp-tprev").addEventListener("click", function () { honeycupTemplate(-1); });
-    if ($("btn-tp-tnext")) $("btn-tp-tnext").addEventListener("click", function () { honeycupTemplate(1); });
+    if ($("btn-hc-rand")) $("btn-hc-rand").addEventListener("click", honeycupRandomForm);
+    buildTemplateList(); // テンプレ一覧を描画
     $("btn-finesse").addEventListener("click", startFinesse);
     if ($("btn-finesse-20s")) $("btn-finesse-20s").addEventListener("click", startFinesse20);
     $("btn-reset").addEventListener("click", doReset);

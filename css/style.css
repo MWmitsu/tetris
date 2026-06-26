@@ -141,6 +141,30 @@ html { overflow-y: scroll; }
   font-size: 17px; font-weight: 800; letter-spacing: .02em;
   color: var(--accent); text-align: center; text-shadow: 0 0 8px var(--glow);
 }
+/* テンプレ練習: 一覧選択UI */
+.tp-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.tp-item {
+  text-align: left; font-size: 11.5px; padding: 6px 8px; border-radius: 8px; line-height: 1.25;
+  background: var(--panel2); color: var(--text); border: 1px solid var(--line); cursor: pointer;
+  transition: border-color .12s, background .12s, box-shadow .12s;
+}
+.tp-item:hover { border-color: var(--accent2); }
+.tp-item.active {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(124,131,255,.28), rgba(124,131,255,.08));
+  box-shadow: 0 0 10px var(--glow);
+}
+.tp-item b { display: block; font-size: 12.5px; font-weight: 800; }
+.tp-item small { color: var(--muted); font-size: 10.5px; }
+.tp-item.active small { color: var(--text); }
+.tp-nav { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.tp-formidx { flex: 1 1 auto; text-align: center; font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent); white-space: nowrap; }
+.tp-status { white-space: pre-wrap; font-size: 12px; line-height: 1.55; margin: 6px 0; padding: 6px 8px; background: rgba(255,255,255,0.04); border-radius: 6px; }
+.tp-legend { font-size: 11px; color: var(--muted); margin: 6px 0; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.tp-legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; }
+.tp-legend .sw-base { background: #7a8290; }
+.tp-legend .sw-target { background: #4aa3ff; opacity: .42; }
+
 .hint {
   width: 304px; max-width: 100%; min-height: 46px; text-align: center;
   display: flex; align-items: center; justify-content: center;
