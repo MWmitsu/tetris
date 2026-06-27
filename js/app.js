@@ -2048,11 +2048,21 @@
     return best;
   }
   // 8テンプレを一覧ボタンで描画（初回 buildUI で1回）
+  function tpCategoryOf(t) {
+    return t.category || (t.id === "user" ? "ユーザー取込" : "開幕・その他");
+  }
   function buildTemplateList() {
     const root = $("tp-list"); if (!root) return;
     root.innerHTML = "";
+    let lastCat = null;
     for (let i = 0; i < TP_TEMPLATES.length; i++) {
       const t = TP_TEMPLATES[i];
+      const cat = tpCategoryOf(t);
+      if (cat !== lastCat) {
+        const h = document.createElement("div");
+        h.className = "tp-cat"; h.textContent = cat;
+        root.appendChild(h); lastCat = cat;
+      }
       const b = document.createElement("button");
       b.className = "tp-item" + (i === tpTmpl ? " active" : "");
       b.setAttribute("data-i", i);

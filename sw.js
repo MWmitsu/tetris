@@ -5,7 +5,7 @@
 //  オフライン時のみキャッシュから配信する。これにより更新が確実に届き、かつオフラインでも起動できる。
 //  キャッシュ名(バージョン)を変えると旧キャッシュは activate 時に破棄される。
 // ============================================================
-const CACHE = 'tetris-practice-v54';
+const CACHE = 'tetris-practice-v55';
 
 const CORE = [
   './',
@@ -20,6 +20,7 @@ const CORE = [
   './js/honeycup.js',
   './js/honeycup_patterns.js',
   './js/templates_practice.js',
+  './js/templates_midgame.js',
   './js/finesse.js',
   './js/app.js',
   './icon-192.png',
