@@ -35,8 +35,8 @@
     gravity: false,    // 練習向けに既定OFF（自由に置く）
     gravityMs: 800,
     autoRepeat: true,  // テンプレ完了時に自動で最初から
-    das: 200,          // ms（ぷよぷよテトリス テトリスモード標準: 12フレーム ≒ 200ms）
-    arr: 33,           // ms（同 2フレーム ≒ 33ms。ARR=2フレームはPPT特有）
+    das: 130,          // ms（実機A/B比較でこの効きが好評。v43までの従来値に固定）
+    arr: 25,           // ms（同上）
     sound: true,       // 効果音(SE)
   };
 
