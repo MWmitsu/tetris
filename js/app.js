@@ -35,15 +35,10 @@
     gravity: false,    // 練習向けに既定OFF（自由に置く）
     gravityMs: 800,
     autoRepeat: true,  // テンプレ完了時に自動で最初から
-    das: 130,          // ms
-    arr: 25,           // ms
+    das: 200,          // ms（ぷよぷよテトリス テトリスモード標準: 12フレーム ≒ 200ms）
+    arr: 33,           // ms（同 2フレーム ≒ 33ms。ARR=2フレームはPPT特有）
     sound: true,       // 効果音(SE)
   };
-  // 操作スピード(DAS/ARR)プリセット。localStorage で永続化（既定=標準で従来どおり）。
-  const SPEED_PRESETS = { normal: { das: 130, arr: 25 }, fast: { das: 100, arr: 10 }, turbo: { das: 60, arr: 0 } };
-  function applySpeedPreset(name) { const p = SPEED_PRESETS[name] || SPEED_PRESETS.normal; settings.das = p.das; settings.arr = p.arr; }
-  function loadSpeedPreset() { try { const s = localStorage.getItem("tt_speed_v1"); return (s && SPEED_PRESETS[s]) ? s : "normal"; } catch (e) { return "normal"; } }
-  applySpeedPreset(loadSpeedPreset()); // 起動時に反映
 
   // ===== 効果音(SE)：Web Audioで合成（音源ファイル不要） =====
   const SND = { ctx: null, master: null };
@@ -2802,16 +2797,6 @@
     bindToggle("set-gravity", "gravity");
     bindToggle("set-repeat", "autoRepeat");
     bindToggle("set-sound", "sound");
-    // 操作スピード(DAS/ARR)セレクタ
-    const spd = $("set-speed");
-    if (spd) {
-      spd.value = loadSpeedPreset();
-      spd.addEventListener("change", function () {
-        applySpeedPreset(spd.value);
-        try { localStorage.setItem("tt_speed_v1", spd.value); } catch (e) {}
-        flashHint("操作スピードを「" + spd.options[spd.selectedIndex].textContent + "」にしました（DAS " + settings.das + "ms / ARR " + settings.arr + "ms）。", false);
-      });
-    }
     // 効果音: 最初のユーザー操作で AudioContext を起動（自動再生ポリシー対策）
     sndInit();
     const resumeAudio = function () { sndInit(); if (SND.ctx && SND.ctx.state === "suspended") { try { SND.ctx.resume(); } catch (e) {} } };

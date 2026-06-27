@@ -131,9 +131,6 @@ html { overflow-y: scroll; }
 
 .toggle { display: block; font-size: 13px; padding: 5px 0; cursor: pointer; color: var(--text); }
 .toggle input { margin-right: 8px; transform: translateY(1px); }
-.set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; padding: 7px 0; color: var(--text); }
-.set-row select { flex: 0 0 auto; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); cursor: pointer; }
-.set-row select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--glow); }
 
 /* タイムアタック/最適化のライブ表示。固定高さ＋等幅数字で、毎フレーム更新しても
    レイアウトがズレない（盤面の上下移動・topbarのスライドを防ぐ）。 */
