@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=51" />
+  <link rel="stylesheet" href="css/style.css?v=52" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v51</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v52</span></div>
   </header>
 
   <main class="layout">
@@ -119,6 +119,14 @@
         <label class="toggle"><input type="checkbox" id="set-gravity"> 重力(自動落下)</label>
         <label class="toggle"><input type="checkbox" id="set-repeat"> テンプレ自動反復</label>
         <label class="toggle"><input type="checkbox" id="set-sound"> 効果音(SE)</label>
+        <div class="set-row"><span>操作スピード</span>
+          <select id="set-speed" aria-label="操作スピード(DAS/ARR)">
+            <option value="normal">標準</option>
+            <option value="fast">速い</option>
+            <option value="turbo">最速（キビキビ）</option>
+          </select>
+        </div>
+        <p class="note">横移動の効き（初動DAS／連射ARR）。Joy-Conやキーがもたつく時は「速い／最速」に。</p>
       </div>
 
       <div class="panel">
@@ -150,16 +158,16 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=51"></script>
-  <script src="js/templates.js?v=51"></script>
-  <script src="js/catalog.js?v=51"></script>
-  <script src="js/catalog_data.js?v=51"></script>
-  <script src="js/fumen.js?v=51"></script>
-  <script src="js/honeycup.js?v=51"></script>
-  <script src="js/honeycup_patterns.js?v=51"></script>
-  <script src="js/templates_practice.js?v=51"></script>
-  <script src="js/finesse.js?v=51"></script>
-  <script src="js/app.js?v=51"></script>
+  <script src="js/engine.js?v=52"></script>
+  <script src="js/templates.js?v=52"></script>
+  <script src="js/catalog.js?v=52"></script>
+  <script src="js/catalog_data.js?v=52"></script>
+  <script src="js/fumen.js?v=52"></script>
+  <script src="js/honeycup.js?v=52"></script>
+  <script src="js/honeycup_patterns.js?v=52"></script>
+  <script src="js/templates_practice.js?v=52"></script>
+  <script src="js/finesse.js?v=52"></script>
+  <script src="js/app.js?v=52"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>
