@@ -2288,13 +2288,12 @@
     }
   }
   function render() {
-    // 集計
-    statLines.textContent = G.lines;
-    statPieces.textContent = G.pieces;
-    statPc.textContent = G.pcs;
-    if (statTspin) statTspin.textContent = G.tspins;
-    if (statCycle) statCycle.textContent = G.cycles;
-    updateHcDebug();
+    // 集計は「値が変わった時だけ」DOM更新（移動/DAS連射中の無駄なレイアウト再計算を避ける）
+    if (statLines.textContent != G.lines) statLines.textContent = G.lines;
+    if (statPieces.textContent != G.pieces) statPieces.textContent = G.pieces;
+    if (statPc.textContent != G.pcs) statPc.textContent = G.pcs;
+    if (statTspin && statTspin.textContent != G.tspins) statTspin.textContent = G.tspins;
+    if (statCycle && statCycle.textContent != G.cycles) statCycle.textContent = G.cycles;
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";
@@ -2419,8 +2418,14 @@
       bctx.textAlign = "left";
     }
 
-    drawPreview(hctx, holdCv, G.hold ? [G.hold] : []);
-    drawPreview(nctx, nextCv, previewQueue());
+    // ホールド/ネクストのプレビューは内容が変わった時だけ再描画（移動/DAS中の無駄な再描画を避ける）
+    const pq = previewQueue();
+    const psig = (G.hold || "-") + "|" + pq.join("");
+    if (psig !== render._psig) {
+      render._psig = psig;
+      drawPreview(hctx, holdCv, G.hold ? [G.hold] : []);
+      drawPreview(nctx, nextCv, pq);
+    }
   }
 
   function previewQueue() {
