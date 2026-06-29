@@ -24,7 +24,7 @@
 
   const $ = function (id) { return document.getElementById(id); };
   const statLines = $("stat-lines"), statPieces = $("stat-pieces"), statPc = $("stat-pc");
-  const statTspin = $("stat-tspin"), statCycle = $("stat-cycle"), statAi = $("stat-ai");
+  const statTspin = $("stat-tspin"), statCycle = $("stat-cycle"), statAi = $("stat-ai"), statTslot = $("stat-tslot");
   const hintBox = $("hint-text"), modeLabel = $("mode-label"), taTime = $("ta-time");
   function setTa(t) { if (taTime) taTime.textContent = (t == null ? "" : t); }
 
@@ -1294,16 +1294,34 @@
     render();
   }
 
+  // ★AI: AIヒントを出すモードか（フリー/40LINE/Ultra、またはテンプレ練習で「LST積み」選択中）
+  function aiModeActive() {
+    if (G.mode === "free" || G.mode === "sprint" || G.mode === "ultra") return true;
+    if (G.mode === "honeycup") { var t = tpCurTemplate(); return !!(t && t.category === "LST積み"); }
+    return false;
+  }
   // ★AI: AIヒント計算（スポーン/undo時のみ。結果を G.aiHint にキャッシュ）
+  //   パターンA=現在のミノをそのまま置く / パターンB=ホールド(空ならネクスト1番目)と交換して置く
+  //   の最善手を比較し、スコアが高い方を採用。useHold で描画色を切替（金=現在 / 水=交換）。
   function computeAiHint() {
     G.aiHint = null;
     if (!settings.aiHint || !window.TT_AI || !G.active || G.over) return;
-    // 自由積み系のみ対象（テンプレ練習/最適化は目的が別なので出さず、既存挙動を一切変えない）
-    if (!(G.mode === "free" || G.mode === "sprint" || G.mode === "ultra")) return;
-    try { G.aiHint = window.TT_AI.findBestMove(G.grid, G.active.piece, G.active.rot, G.hold, G.queue); }
-    catch (e) { G.aiHint = null; }
+    if (!aiModeActive()) return; // テンプレ練習(LST以外)/最適化は対象外＝既存挙動を変えない
+    try {
+      var a = G.active;
+      var chosen = window.TT_AI.findBestMove(G.grid, a.piece, a.rot, G.hold, G.queue); // パターンA
+      var useHold = false;
+      if (G.canHold) { // この手でまだホールドしていない時のみ交換を検討
+        var swapPiece = G.hold || (G.queue && G.queue[0]) || null;
+        if (swapPiece) {
+          var bestB = window.TT_AI.findBestMove(G.grid, swapPiece, 0, null, G.queue); // パターンB
+          if (bestB && (!chosen || bestB.score > chosen.score)) { chosen = bestB; useHold = true; }
+        }
+      }
+      if (chosen) { chosen.useHold = useHold; G.aiHint = chosen; }
+    } catch (e) { G.aiHint = null; }
   }
-  // ★AI: プレイヤーの設置を最善手と比較して G.aiEval を更新（ロック時・aiHintがある時のみ）
+  // ★AI: プレイヤーの設置を最善手と比較して G.aiEval を4段階で更新（ロック時・aiHintがある時のみ）
   function judgeAiMove(a) {
     if (!settings.aiHint || !G.aiHint || !window.TT_AI || !a) return;
     try {
@@ -1311,9 +1329,12 @@
       if (playerKey === E.cellKey(G.aiHint.cells)) { G.aiEval = "✅ 最善手"; return; }
       var pe = window.TT_AI.evaluatePlacement(G.grid, a.piece, a.rot, a.px);
       if (!pe) { G.aiEval = "❌ ミス"; return; }
-      var diff = G.aiHint.score - pe.score;            // best が最大なので通常 diff>=0
-      var thresh = Math.abs(G.aiHint.score) * 0.10;    // 最善手スコアの10%以内なら次善手
-      G.aiEval = (diff <= thresh) ? "🟡 次善手" : "❌ ミス";
+      var best = G.aiHint.score;
+      var ratio = Math.abs(best - pe.score) / Math.max(1, Math.abs(best)); // 最善手スコアとの差の割合
+      var TH = window.TT_AI.thresholds || { good: 0.15, ok: 0.40 };
+      if (ratio <= TH.good) G.aiEval = "🟡 次善手";
+      else if (ratio <= TH.ok) G.aiEval = "⚠️ 改善余地あり";
+      else G.aiEval = "❌ ミス";
     } catch (e) { /* 判定失敗時は据え置き */ }
   }
 
@@ -2275,6 +2296,7 @@
   }
   function handleHoneycupLock() {
     const a = G.active;
+    judgeAiMove(a);          // ★AI: LST積み選択中のみ G.aiHint があり評価更新（他テンプレは aiHint=null で無処理）
     pushHistory();
     // T-Spin判定（統計・ラベル用。固定前の盤面で判定）
     let spin = "none";
@@ -2338,6 +2360,14 @@
     if (statTspin && statTspin.textContent != G.tspins) statTspin.textContent = G.tspins;
     if (statCycle && statCycle.textContent != G.cycles) statCycle.textContent = G.cycles;
     if (statAi) { const aiTxt = settings.aiHint ? G.aiEval : "-"; if (statAi.textContent != aiTxt) statAi.textContent = aiTxt; } // ★AI評価
+    if (statTslot) { // ★Tスロット維持度（テンプレ練習でLST積み選択中のみ。毎描画で TT_AI.tSlotScore を算出）
+      let tsTxt = "-";
+      if (settings.aiHint && G.mode === "honeycup" && aiModeActive() && window.TT_AI) {
+        const ts = window.TT_AI.tSlotScore(G.grid);
+        tsTxt = ts >= 20 ? "✅ 維持中" : ts >= 10 ? "🟡 やや崩れ" : "❌ 崩れ";
+      }
+      if (statTslot.textContent != tsTxt) statTslot.textContent = tsTxt;
+    }
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";
@@ -2429,11 +2459,12 @@
       }
     }
 
-    // ★AIゴースト（最善手・金色半透明）。既存ゴーストとは独立した別レイヤー。アクティブより先に描き、上にミノが乗る。
+    // ★AIゴースト（最善手・別レイヤー）。金色=現在のミノを置く / 水色=ホールド交換して置く。既存ゴーストとは独立。
     if (settings.aiHint && G.aiHint && G.aiHint.cells && G.active && !G.over) {
       bctx.save();
-      bctx.fillStyle = "rgba(255,215,0,0.4)";
-      bctx.strokeStyle = "rgba(255,215,0,0.85)";
+      const _hold = G.aiHint.useHold;
+      bctx.fillStyle = _hold ? "rgba(0,200,255,0.4)" : "rgba(255,215,0,0.4)";
+      bctx.strokeStyle = _hold ? "rgba(0,200,255,0.9)" : "rgba(255,215,0,0.85)";
       bctx.lineWidth = 1.5;
       const ac = G.aiHint.cells;
       for (let i = 0; i < ac.length; i++) {

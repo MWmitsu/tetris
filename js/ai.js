@@ -24,6 +24,10 @@ window.TT_AI = (function () {
     return { COLS: (E && E.COLS) || 10, ROWS: (E && E.ROWS) || 20 };
   }
 
+  // 手の評価しきい値（最善手スコアとの差の割合）。後から調整しやすいよう先頭で定数化。
+  //   good 以内 → 次善手 / ok 以内 → 改善余地あり / それ超 → ミス
+  var AI_THRESHOLD = { good: 0.15, ok: 0.40 };
+
   // Dellacherie(El-Tetris) 公開重み（仕様指定の標準値）
   var W = {
     landingHeight: -4.500,
@@ -233,6 +237,7 @@ window.TT_AI = (function () {
     evaluatePlacement: evaluatePlacement,
     evaluateBoard: evaluateBoard,
     tSlotScore: tSlotScore,
+    thresholds: AI_THRESHOLD,
     // 補助(テスト/拡張用に公開・無害)
     _weights: W,
     _metrics: { toBinary: toBinary, columnHeights: columnHeights, rowTransitions: rowTransitions,
