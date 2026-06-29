@@ -1308,29 +1308,22 @@
     if (!settings.aiHint || !window.TT_AI || !G.active || G.over) return;
     if (!aiModeActive()) return; // テンプレ練習(LST以外)/最適化は対象外＝既存挙動を変えない
     try {
-      var a = G.active;
-      var chosen = window.TT_AI.findBestMove(G.grid, a.piece, a.rot, G.hold, G.queue); // パターンA
-      var useHold = false;
-      if (G.canHold) { // この手でまだホールドしていない時のみ交換を検討
-        var swapPiece = G.hold || (G.queue && G.queue[0]) || null;
-        if (swapPiece) {
-          var bestB = window.TT_AI.findBestMove(G.grid, swapPiece, 0, null, G.queue); // パターンB
-          if (bestB && (!chosen || bestB.score > chosen.score)) { chosen = bestB; useHold = true; }
-        }
-      }
-      if (chosen) { chosen.useHold = useHold; G.aiHint = chosen; }
+      // ビームサーチがHold/Next5を内部で考慮し、useHold付きで最善手を返す（新シグネチャ）
+      G.aiHint = window.TT_AI.findBestMove(G.grid, G.active.piece, G.hold, G.queue);
     } catch (e) { G.aiHint = null; }
   }
   // ★AI: プレイヤーの設置を最善手と比較して G.aiEval を4段階で更新（ロック時・aiHintがある時のみ）
+  //   採点は純Dellacherie(1手)で AI最初の1手 と プレイヤー手 を同尺度比較（ビームのlookaheadスコアと混ぜない）。
   function judgeAiMove(a) {
     if (!settings.aiHint || !G.aiHint || !window.TT_AI || !a) return;
     try {
       var playerKey = E.cellKey(E.absCells(a.piece, a.rot, a.px, a.py));
       if (playerKey === E.cellKey(G.aiHint.cells)) { G.aiEval = "✅ 最善手"; return; }
+      var aiPiece = G.aiHint.useHold ? (G.hold || (G.queue && G.queue[0])) : a.piece; // 最善手が使うミノ
+      var bestPe = aiPiece ? window.TT_AI.evaluatePlacement(G.grid, aiPiece, G.aiHint.rot, G.aiHint.col) : null;
       var pe = window.TT_AI.evaluatePlacement(G.grid, a.piece, a.rot, a.px);
-      if (!pe) { G.aiEval = "❌ ミス"; return; }
-      var best = G.aiHint.score;
-      var ratio = Math.abs(best - pe.score) / Math.max(1, Math.abs(best)); // 最善手スコアとの差の割合
+      if (!bestPe || !pe) { G.aiEval = "⚠️ 改善余地あり"; return; }
+      var ratio = Math.abs(bestPe.score - pe.score) / Math.max(1, Math.abs(bestPe.score));
       var TH = window.TT_AI.thresholds || { good: 0.15, ok: 0.40 };
       if (ratio <= TH.good) G.aiEval = "🟡 次善手";
       else if (ratio <= TH.ok) G.aiEval = "⚠️ 改善余地あり";
