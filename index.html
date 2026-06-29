@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=57" />
+  <link rel="stylesheet" href="css/style.css?v=58" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v57</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v58</span></div>
   </header>
 
   <main class="layout">
@@ -32,6 +32,7 @@
         <div class="stat"><span>T-Spin</span><b id="stat-tspin">0</b></div>
         <div class="stat"><span>PC</span><b id="stat-pc">0</b></div>
         <div class="stat"><span>巡目</span><b id="stat-cycle">0</b></div>
+        <div class="stat"><span>AI評価</span><b id="stat-ai">-</b></div>
       </div>
       <div class="panel">
         <div class="panel-title">モード</div>
@@ -119,7 +120,8 @@
         <label class="toggle"><input type="checkbox" id="set-gravity"> 重力(自動落下)</label>
         <label class="toggle"><input type="checkbox" id="set-repeat"> テンプレ自動反復</label>
         <label class="toggle"><input type="checkbox" id="set-sound"> 効果音(SE)</label>
-        <p class="note">横移動の効き（DAS 130ms／ARR 25ms）に固定しています。</p>
+        <label class="toggle"><input type="checkbox" id="set-ai" checked> AIヒント(金色ゴースト＋AI評価)</label>
+        <p class="note">横移動の効き（DAS 130ms／ARR 25ms）に固定しています。AIヒントは Dellacherie 最善手をフリー/40LINE/Ultra で表示します。</p>
       </div>
 
       <div class="panel">
@@ -151,19 +153,19 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=57"></script>
-  <script src="js/ai.js?v=57"></script>
-  <script src="js/templates.js?v=57"></script>
-  <script src="js/catalog.js?v=57"></script>
-  <script src="js/catalog_data.js?v=57"></script>
-  <script src="js/fumen.js?v=57"></script>
-  <script src="js/honeycup.js?v=57"></script>
-  <script src="js/honeycup_patterns.js?v=57"></script>
-  <script src="js/templates_practice.js?v=57"></script>
-  <script src="js/templates_midgame.js?v=57"></script>
-  <script src="js/templates_lst.js?v=57"></script>
-  <script src="js/finesse.js?v=57"></script>
-  <script src="js/app.js?v=57"></script>
+  <script src="js/engine.js?v=58"></script>
+  <script src="js/ai.js?v=58"></script>
+  <script src="js/templates.js?v=58"></script>
+  <script src="js/catalog.js?v=58"></script>
+  <script src="js/catalog_data.js?v=58"></script>
+  <script src="js/fumen.js?v=58"></script>
+  <script src="js/honeycup.js?v=58"></script>
+  <script src="js/honeycup_patterns.js?v=58"></script>
+  <script src="js/templates_practice.js?v=58"></script>
+  <script src="js/templates_midgame.js?v=58"></script>
+  <script src="js/templates_lst.js?v=58"></script>
+  <script src="js/finesse.js?v=58"></script>
+  <script src="js/app.js?v=58"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>

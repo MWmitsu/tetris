@@ -179,55 +179,58 @@ window.TT_AI = (function () {
      nextPieces  : ネクスト配列(同上・将来の多手読み用)
      戻り値      : { col, rot, score, cells } / 置けなければ null
                    col=ボックス左上列(px。app.js の G.active.px と同義) */
-  function findBestMove(grid, piece, rot, heldPiece, nextPieces) {
+  // 単一配置の評価: base(0/1の2値盤面)に piece を (rot,px) で落として置いた結果を返す。
+  // 戻り値 { col, rot, score, cells } / 盤外・トップアウトで無効なら null。
+  function placementResult(base, piece, rot, px) {
     var E = window.TT; if (!E || !E.PIECES[piece]) return null;
     var d = dims(), ROWS = d.ROWS, COLS = d.COLS;
+    var py = E.dropY(base, piece, rot, px, -2);   // base は 0/1（0=falsy,1=truthy）で collide と互換
+    var cells = E.absCells(piece, rot, px, py);
+    var ok = true, maxR = -999, i, r, c;
+    for (i = 0; i < 4; i++) {
+      r = cells[i][0]; c = cells[i][1];
+      if (c < 0 || c >= COLS || r >= ROWS || r < 0) { ok = false; break; }
+      if (r > maxR) maxR = r;
+    }
+    if (!ok) return null;
+    var b = base.map(function (row) { return row.slice(); });
+    for (i = 0; i < 4; i++) b[cells[i][0]][cells[i][1]] = 1;
+    // 消去ライン数 と そのミノのうち消えたセル数(消去貢献度)
+    var cleared = 0, pieceInCleared = 0;
+    for (r = 0; r < ROWS; r++) {
+      var full = true;
+      for (c = 0; c < COLS; c++) if (!b[r][c]) { full = false; break; }
+      if (full) { cleared++; for (i = 0; i < 4; i++) if (cells[i][0] === r) pieceInCleared++; }
+    }
+    var eroded = cleared * pieceInCleared;
+    var landingHeight = ROWS - maxR;              // 着地高さ=ミノ最下段の床からの段数
+    var after = cleared ? clearBinary(b) : b;     // 評価は「消去後の盤面」(Dellacherie/El-Tetris準拠)
+    var score = evaluateBoard(after, { landingHeight: landingHeight, erodedCells: eroded });
+    return { col: px, rot: rot, score: score, cells: cells };
+  }
+
+  function findBestMove(grid, piece, rot, heldPiece, nextPieces) {
+    var E = window.TT; if (!E || !E.PIECES[piece]) return null;
+    var d = dims(), COLS = d.COLS;
     var base = toBinary(grid);
     var best = null;
-
     for (var rr = 0; rr < 4; rr++) {
       for (var px = -2; px < COLS; px++) {
-        var py = E.dropY(grid, piece, rr, px, -2);
-        var cells = E.absCells(piece, rr, px, py);
-        // 妥当性: 全セルが盤内(0<=c<COLS, 0<=r<ROWS)。上にはみ出す(r<0)=トップアウトは除外。
-        var ok = true, minR = 999, maxR = -999, i, r, c;
-        for (i = 0; i < 4; i++) {
-          r = cells[i][0]; c = cells[i][1];
-          if (c < 0 || c >= COLS || r >= ROWS || r < 0) { ok = false; break; }
-          if (r < minR) minR = r; if (r > maxR) maxR = r;
-        }
-        if (!ok) continue;
-
-        // 置いた盤面(2値)を作る
-        var b = base.map(function (row) { return row.slice(); });
-        for (i = 0; i < 4; i++) b[cells[i][0]][cells[i][1]] = 1;
-
-        // 消去ライン数 と そのミノのうち消えたセル数(消去貢献度)
-        var cleared = 0, pieceInCleared = 0;
-        for (r = 0; r < ROWS; r++) {
-          var full = true;
-          for (c = 0; c < COLS; c++) if (!b[r][c]) { full = false; break; }
-          if (full) {
-            cleared++;
-            for (i = 0; i < 4; i++) if (cells[i][0] === r) pieceInCleared++;
-          }
-        }
-        var eroded = cleared * pieceInCleared;
-        // 着地高さ = ミノ最下段の床からの段数（仕様「着地した行の高さ(下から)」）
-        var landingHeight = ROWS - maxR;
-
-        // 評価は「消去後の盤面」で行う（Dellacherie/El-Tetris 準拠）
-        var after = cleared ? clearBinary(b) : b;
-        var score = evaluateBoard(after, { landingHeight: landingHeight, erodedCells: eroded });
-
-        if (!best || score > best.score) best = { col: px, rot: rr, score: score, cells: cells };
+        var res = placementResult(base, piece, rr, px);
+        if (res && (!best || res.score > best.score)) best = res;
       }
     }
     return best;
   }
 
+  // プレイヤーが置いた配置(piece を rot,px で落とす)の評価を返す（手の採点用）。
+  function evaluatePlacement(grid, piece, rot, px) {
+    return placementResult(toBinary(grid), piece, rot, px);
+  }
+
   return {
     findBestMove: findBestMove,
+    evaluatePlacement: evaluatePlacement,
     evaluateBoard: evaluateBoard,
     tSlotScore: tSlotScore,
     // 補助(テスト/拡張用に公開・無害)

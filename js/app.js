@@ -24,7 +24,7 @@
 
   const $ = function (id) { return document.getElementById(id); };
   const statLines = $("stat-lines"), statPieces = $("stat-pieces"), statPc = $("stat-pc");
-  const statTspin = $("stat-tspin"), statCycle = $("stat-cycle");
+  const statTspin = $("stat-tspin"), statCycle = $("stat-cycle"), statAi = $("stat-ai");
   const hintBox = $("hint-text"), modeLabel = $("mode-label"), taTime = $("ta-time");
   function setTa(t) { if (taTime) taTime.textContent = (t == null ? "" : t); }
 
@@ -38,7 +38,10 @@
     das: 130,          // ms（実機A/B比較でこの効きが好評。v43までの従来値に固定）
     arr: 25,           // ms（同上）
     sound: true,       // 効果音(SE)
+    aiHint: true,      // AIヒント(Dellacherie最善手の金色ゴースト＋AI評価)。localStorageで永続化
   };
+  // AIヒント設定の復元（既定ON）
+  try { var _ai = localStorage.getItem("tt_ai_hint_v1"); if (_ai !== null) settings.aiHint = (_ai === "1"); } catch (e) {}
 
   // ===== 効果音(SE)：Web Audioで合成（音源ファイル不要） =====
   const SND = { ctx: null, master: null };
@@ -120,6 +123,8 @@
     attemptMistake: false, // 今回の試行で目標外へはみ出したか（習熟昇格の可否判定）
     drill: false,          // 弱点ドリル周回中か
     chain: null,           // はちみつ砲 通し練習(1→2→3) の状態 {on,stage,route}
+    aiHint: null,          // AIヒント(Dellacherie最善手)キャッシュ {col,rot,score,cells}。スポーン/undo時のみ計算し描画で使い回す
+    aiEval: "-",           // 直前の設置のAI評価表示（✅最善手/🟡次善手/❌ミス/-）
   };
 
   // ===== テンプレ・レジストリ & 保存（localStorage） =====
@@ -1176,6 +1181,8 @@
       if (tplType() === "fsteps") { setFStep(s.stepIndex); return; }
       computeTarget();
     }
+    G.aiEval = "-";          // ★AI: 取り消した手の評価は無効化
+    computeAiHint();         // ★AI: 復元したミノ/盤面で最善手を再計算
     render();
   }
 
@@ -1283,7 +1290,31 @@
     G.canHold = true;
     G.lastRotation = false; // 出現直後はまだ回転していない
     if (G.mode === "template") computeTarget();
+    computeAiHint();        // ★AI: 新ミノ出現時に最善手を1回だけ計算してキャッシュ（描画で使い回す）
     render();
+  }
+
+  // ★AI: AIヒント計算（スポーン/undo時のみ。結果を G.aiHint にキャッシュ）
+  function computeAiHint() {
+    G.aiHint = null;
+    if (!settings.aiHint || !window.TT_AI || !G.active || G.over) return;
+    // 自由積み系のみ対象（テンプレ練習/最適化は目的が別なので出さず、既存挙動を一切変えない）
+    if (!(G.mode === "free" || G.mode === "sprint" || G.mode === "ultra")) return;
+    try { G.aiHint = window.TT_AI.findBestMove(G.grid, G.active.piece, G.active.rot, G.hold, G.queue); }
+    catch (e) { G.aiHint = null; }
+  }
+  // ★AI: プレイヤーの設置を最善手と比較して G.aiEval を更新（ロック時・aiHintがある時のみ）
+  function judgeAiMove(a) {
+    if (!settings.aiHint || !G.aiHint || !window.TT_AI || !a) return;
+    try {
+      var playerKey = E.cellKey(E.absCells(a.piece, a.rot, a.px, a.py));
+      if (playerKey === E.cellKey(G.aiHint.cells)) { G.aiEval = "✅ 最善手"; return; }
+      var pe = window.TT_AI.evaluatePlacement(G.grid, a.piece, a.rot, a.px);
+      if (!pe) { G.aiEval = "❌ ミス"; return; }
+      var diff = G.aiHint.score - pe.score;            // best が最大なので通常 diff>=0
+      var thresh = Math.abs(G.aiHint.score) * 0.10;    // 最善手スコアの10%以内なら次善手
+      G.aiEval = (diff <= thresh) ? "🟡 次善手" : "❌ ミス";
+    } catch (e) { /* 判定失敗時は据え置き */ }
   }
 
   // ===== 操作 =====
@@ -1376,6 +1407,7 @@
     if (G.mode === "finesse") { handleFinesseLock(); return; }
     if (G.mode === "honeycup") { handleHoneycupLock(); return; }
     const a = G.active;
+    judgeAiMove(a);          // ★AI: 設置を最善手と比較して AI評価を更新（固定前の盤面で判定）
     pushHistory();
     // T-spin 判定（固定前の盤面で。Tの隅セルはT自身が占めないため pre-lock で正しい）
     let spin = "none";
@@ -1581,6 +1613,7 @@
     G.finesseTimed = false; G.timerStart = null; G.timedDone = false; G.sprintGoal = SPRINT_GOAL; // タイムアタック状態
     G.score = 0; G.combo = -1; G.b2b = false; // Ultraスコア状態（REN/Back-to-Back）
     G.hcTarget = null; G.hcTargetKey = null; G.hcPrefillKey = null; G.hcDone = false; // はちみつ砲練習状態
+    G.aiHint = null; G.aiEval = "-"; // ★AI: 開始/リセット直後はヒント無し・評価「-」
     setTa(""); // ライブ表示クリア（フリー/テンプレ等では非表示。各モード開始時に再設定）
     clearHeld();
     // リマップ取得モードが残っていると入力が吸われ続けるので解除
@@ -2304,6 +2337,7 @@
     if (statPc.textContent != G.pcs) statPc.textContent = G.pcs;
     if (statTspin && statTspin.textContent != G.tspins) statTspin.textContent = G.tspins;
     if (statCycle && statCycle.textContent != G.cycles) statCycle.textContent = G.cycles;
+    if (statAi) { const aiTxt = settings.aiHint ? G.aiEval : "-"; if (statAi.textContent != aiTxt) statAi.textContent = aiTxt; } // ★AI評価
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";
@@ -2393,6 +2427,20 @@
           bctx.restore();
         }
       }
+    }
+
+    // ★AIゴースト（最善手・金色半透明）。既存ゴーストとは独立した別レイヤー。アクティブより先に描き、上にミノが乗る。
+    if (settings.aiHint && G.aiHint && G.aiHint.cells && G.active && !G.over) {
+      bctx.save();
+      bctx.fillStyle = "rgba(255,215,0,0.4)";
+      bctx.strokeStyle = "rgba(255,215,0,0.85)";
+      bctx.lineWidth = 1.5;
+      const ac = G.aiHint.cells;
+      for (let i = 0; i < ac.length; i++) {
+        const r = ac[i][0], c = ac[i][1];
+        if (r >= 0) { bctx.fillRect(c * CELL + 3, r * CELL + 3, CELL - 6, CELL - 6); bctx.strokeRect(c * CELL + 3.5, r * CELL + 3.5, CELL - 7, CELL - 7); }
+      }
+      bctx.restore();
     }
 
     // ゴースト & アクティブ
@@ -2807,6 +2855,17 @@
     bindToggle("set-gravity", "gravity");
     bindToggle("set-repeat", "autoRepeat");
     bindToggle("set-sound", "sound");
+    // ★AIヒント トグル（localStorageで永続化。ONでスポーン時に最善手を計算、OFFで金色ゴースト/評価を非表示）
+    const aiToggle = $("set-ai");
+    if (aiToggle) {
+      aiToggle.checked = settings.aiHint;
+      aiToggle.addEventListener("change", function () {
+        settings.aiHint = aiToggle.checked;
+        try { localStorage.setItem("tt_ai_hint_v1", aiToggle.checked ? "1" : "0"); } catch (e) {}
+        if (settings.aiHint) computeAiHint(); else { G.aiHint = null; }
+        render();
+      });
+    }
     // 効果音: 最初のユーザー操作で AudioContext を起動（自動再生ポリシー対策）
     sndInit();
     const resumeAudio = function () { sndInit(); if (SND.ctx && SND.ctx.state === "suspended") { try { SND.ctx.resume(); } catch (e) {} } };
