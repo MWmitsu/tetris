@@ -26,6 +26,7 @@
   const statLines = $("stat-lines"), statPieces = $("stat-pieces"), statPc = $("stat-pc");
   const statTspin = $("stat-tspin"), statCycle = $("stat-cycle"), statAi = $("stat-ai"), statTslot = $("stat-tslot");
   const statTsd = $("stat-tsd"), statKeep = $("stat-keep"), lstGuide = $("lst-guide");
+  const statPcRate = $("stat-pc-rate"), statEmptyCells = $("stat-empty-cells"), pcGuide = $("pc-guide"), pcBanner = $("pc-banner");
   const hintBox = $("hint-text"), modeLabel = $("mode-label"), taTime = $("ta-time");
   function setTa(t) { if (taTime) taTime.textContent = (t == null ? "" : t); }
 
@@ -1269,7 +1270,11 @@
   // ===== スポーン =====
   function spawnFromQueue() {
     let piece;
-    if (G.mode === "template" && tplType() === "steps") {
+    if (G.mode === "pc_challenge") {
+      // 課題の固定ミノ列のみ供給（bag補充しない）。尽きたら=PC未達で終了。
+      if (!G.queue.length) { pcChallengeExhausted(); return; }
+      piece = G.queue.shift();
+    } else if (G.mode === "template" && tplType() === "steps") {
       if (G.stepIndex >= G.template.steps.length) { onTemplateComplete(); return; }
       piece = G.template.steps[G.stepIndex].piece;
     } else if (G.mode === "template" && G.template && G.template.queue) {
@@ -1303,8 +1308,8 @@
     return false;
   }
   function aiModeActive() {
-    if (G.mode === "free" || G.mode === "sprint" || G.mode === "ultra" || G.mode === "lst") return true;
-    return isLstContext(); // honeycup は LST積み選択時のみ
+    if (G.mode === "free" || G.mode === "sprint" || G.mode === "ultra" || G.mode === "lst" || G.mode === "pc_free") return true;
+    return isLstContext(); // honeycup は LST積み選択時のみ（pc_challengeはヒント無しなので対象外）
   }
   // ★AI: AIヒント計算（スポーン/undo時のみ。結果を G.aiHint にキャッシュ）
   //   パターンA=現在のミノをそのまま置く / パターンB=ホールド(空ならネクスト1番目)と交換して置く
@@ -1314,7 +1319,12 @@
     if (!settings.aiHint || !window.TT_AI || !G.active || G.over) return;
     if (!aiModeActive()) return; // テンプレ練習(LST以外)/最適化は対象外＝既存挙動を変えない
     try {
-      if (isLstContext()) {
+      if (G.mode === "pc_free") {
+        // PC練習：PCルートがあれば緑ゴースト、無ければ通常の金色(fast)
+        var pcHint = window.TT_PC ? window.TT_PC.findPCHint(G.grid, G.active.piece, G.hold, G.queue) : null;
+        if (pcHint) { pcHint.pc = true; pcHint.mode = "pc"; G.aiHint = pcHint; }
+        else { G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); }
+      } else if (isLstContext()) {
         // LSTモード / LST積みテンプレ：ビームサーチ＋LSTボーナス（Hold/Next5考慮・useHold付き・約50ms）
         G.aiHint = window.TT_AI.findBestMove(G.grid, G.active.piece, G.hold, G.queue.slice(0, 5));
       } else {
@@ -1545,13 +1555,17 @@
     G.lastClearLabel = clearLabel(spin, cl.cleared);
     if (spin !== "none") { G.tspins++; }
     let msg = G.lastClearLabel ? G.lastClearLabel + "！" : "";
+    let emptyAfter = false;
     if (cl.cleared > 0) {
       G.lines += cl.cleared;
-      const empty = G.grid.every(function (row) { return row.every(function (c) { return !c; }); });
-      if (empty) { G.pcs++; msg = (msg ? msg + " " : "") + "パーフェクトクリア！🎉"; }
+      emptyAfter = G.grid.every(function (row) { return row.every(function (c) { return !c; }); });
+      if (emptyAfter) { G.pcs++; msg = (msg ? msg + " " : "") + "パーフェクトクリア！🎉"; }
     }
     if (G.mode === "ultra") ultraAddScore(spin, cl.cleared, cl.cleared > 0 && boardEmpty()); // スコア加算
     if (G.mode === "lst" && spin === "full" && cl.cleared === 2) G.lstTSD++; // ★LST: TSD成立カウント
+    // ★PC: 全消去到達時のモード別処理
+    if (emptyAfter && G.mode === "pc_free") pcFreeWins++;
+    if (emptyAfter && G.mode === "pc_challenge") { clearSfx(spin, cl.cleared, true); G.active = null; pcChallengeSolved(); return; }
     clearSfx(spin, cl.cleared, boardEmpty());
     G.active = null;
     // 次へ
@@ -1644,6 +1658,7 @@
     G.hcTarget = null; G.hcTargetKey = null; G.hcPrefillKey = null; G.hcDone = false; // はちみつ砲練習状態
     G.aiHint = null; G.aiEval = "-"; // ★AI: 開始/リセット直後はヒント無し・評価「-」
     G.lstTotal = 0; G.lstBest = 0; G.lstTSD = 0; // ★LST: 維持率(✅割合)・TSD数のセッション集計
+    if (typeof pcAnimTimer !== "undefined" && pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; } // ★PC: 解答アニメ停止（モード切替/リセットで暴走防止）
     setTa(""); // ライブ表示クリア（フリー/テンプレ等では非表示。各モード開始時に再設定）
     clearHeld();
     // リマップ取得モードが残っていると入力が吸われ続けるので解除
@@ -1665,6 +1680,98 @@
     modeLabel.textContent = "LST積み";
     flashHint("金色ゴーストに従って積むとLST積みが続きます（水色=ホールド推奨）。", false);
     render();
+  }
+
+  // ===== PC（パーフェクトクリア）練習 A-1自由 / A-2課題 =====
+  let pcFreeWins = 0, pcFreeAtt = 0;   // 自由PC: 達成数 / (再)開始数
+  let pcChWins = 0, pcChTotal = 0;     // 課題PC: 成功 / 挑戦
+  let pcCh = null;                     // 課題状態 {solution:[{piece,col,rot}], rows, board0}
+  let pcAnimTimer = null;
+  function setPcResult(msg, fail) {
+    const el = $("pc-challenge-result"); if (!el) return;
+    if (fail) {
+      el.innerHTML = '<span>' + tpEscape(msg) + '</span> <button id="btn-pc-sol" class="ctrl-btn small">解答を見る</button>';
+      const b = $("btn-pc-sol"); if (b) b.addEventListener("click", pcShowSolution);
+    } else { el.textContent = msg || ""; }
+  }
+  // A-1 自由PC練習：フリーと同じプレイ＋PCルートを緑ゴーストで提示
+  function startPCFree() {
+    if (G.chain) G.chain.on = false;
+    G.mode = "pc_free"; resetCommon(); pcFreeAtt++;
+    ensureQueue(6); spawnFromQueue();
+    modeLabel.textContent = "PC練習";
+    flashHint("緑のゴーストに従うとPCを狙えます。←→/回転/Space/ホールド/Undo。", false);
+    render();
+  }
+  // A-2 課題PC練習：PC課題を生成して出題（重力なし）
+  function startPCChallenge() {
+    if (G.chain) G.chain.on = false;
+    if (pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; }
+    G.mode = "pc_challenge"; resetCommon(); pcCh = null; setPcResult("");
+    if (!window.TT_PC) { flashHint("PCソルバー未読込です。", true); render(); return; }
+    let gen = null, tries = 0;
+    const rows = (Math.random() < 0.5) ? 2 : 4;
+    while (!gen && tries < 6) { gen = window.TT_PC.generatePC(rows); tries++; }
+    if (!gen) gen = window.TT_PC.generatePC(2);
+    if (!gen) { flashHint("課題生成に失敗しました。リセットで再試行。", true); render(); return; }
+    const total = gen.solution.length;
+    let k = (gen.rows === 2) ? (Math.random() < 0.5 ? 0 : 1) : (3 + Math.floor(Math.random() * 3));
+    if (k >= total) k = total - 1; if (k < 0) k = 0;
+    for (let i = 0; i < k; i++) { // 先頭k手を先置き（実プレイ同様にロック＆消去）
+      const s = gen.solution[i];
+      const gy = E.dropY(G.grid, s.piece, s.rot, s.col, -2);
+      E.lock(G.grid, s.piece, s.rot, s.col, gy);
+      G.grid = E.clearLines(G.grid).grid;
+    }
+    G.queue = gen.solution.slice(k).map(function (s) { return s.piece; });
+    pcCh = { solution: gen.solution.slice(k), rows: gen.rows, board0: G.grid.map(function (r) { return r.slice(); }) };
+    pcChTotal++;
+    G.bag = []; G.hold = null; G.canHold = true; G.history = [];
+    spawnFromQueue();
+    modeLabel.textContent = "PC課題";
+    flashHint("ミノを全て使って盤面を空にしよう（PC）。提示ミノ＝解答に必要なミノです。", false);
+    render();
+  }
+  function pcChallengeSolved() {
+    pcChWins++; G.active = null;
+    setPcResult("🎉 PC成功！");
+    flashHint("🎉 PC成功！ 次の課題へ…", false);
+    render();
+    if (pcAnimTimer) clearTimeout(pcAnimTimer);
+    pcAnimTimer = setTimeout(startPCChallenge, 1000);
+  }
+  function pcChallengeExhausted() {
+    G.active = null;
+    setPcResult("残念！ ", true); // 「解答を見る」ボタン表示
+    flashHint("ミノを使い切りました。「解答を見る」で正解を再生できます。R＝別の課題。", true);
+    render();
+  }
+  // 「解答を見る」：出題時の盤面に戻し、解答手順を0.8秒間隔で再生
+  function pcShowSolution() {
+    if (!pcCh || !pcCh.solution || !pcCh.board0) return;
+    if (pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; }
+    G.grid = pcCh.board0.map(function (r) { return r.slice(); });
+    G.active = null; G.aiHint = null;
+    setPcResult("解答を再生中…");
+    let i = 0;
+    (function step() {
+      if (G.mode !== "pc_challenge") { if (pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; } return; } // モード変更で中断
+      if (i >= pcCh.solution.length) { setPcResult("解答おわり（R＝別の課題）"); render(); return; }
+      const s = pcCh.solution[i++];
+      const gy = E.dropY(G.grid, s.piece, s.rot, s.col, -2);
+      E.lock(G.grid, s.piece, s.rot, s.col, gy);
+      G.grid = E.clearLines(G.grid).grid;
+      render();
+      pcAnimTimer = setTimeout(step, 800);
+    })();
+  }
+  // 盤面の「積まれている行」内の空セル数（PCまで埋める残りセルの目安）
+  function emptyCellsInStack() {
+    let top = ROWS;
+    for (let r = 0; r < ROWS; r++) { let any = false; for (let c = 0; c < COLS; c++) if (G.grid[r][c]) { any = true; break; } if (any) { top = r; break; } }
+    let n = 0;
+    for (let r = top; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (!G.grid[r][c]) n++;
+    return n;
   }
   function startTemplate(id) {
     const t = findTemplate(id);
@@ -2394,6 +2501,11 @@
       if (statKeep.textContent != kv) statKeep.textContent = kv;
     }
     if (lstGuide) { const show = (G.mode === "lst"); if (lstGuide._on !== show) { lstGuide._on = show; lstGuide.style.display = show ? "" : "none"; } } // ★ガイドテキスト
+    // ★PC: PC率/成功率・残りセル/成功数・ガイド・バナー
+    if (statPcRate) { let v = "-"; if (G.mode === "pc_free") v = Math.round(pcFreeWins / Math.max(1, pcFreeAtt) * 100) + "%"; else if (G.mode === "pc_challenge") v = Math.round(pcChWins / Math.max(1, pcChTotal) * 100) + "%"; if (statPcRate.textContent != v) statPcRate.textContent = v; }
+    if (statEmptyCells) { let v = "-"; if (G.mode === "pc_free") v = "残り" + emptyCellsInStack() + "セル"; else if (G.mode === "pc_challenge") v = "成功 " + pcChWins + "/" + pcChTotal; if (statEmptyCells.textContent != v) statEmptyCells.textContent = v; }
+    if (pcGuide) { const show = (G.mode === "pc_free" || G.mode === "pc_challenge"); if (pcGuide._on !== show) { pcGuide._on = show; pcGuide.style.display = show ? "" : "none"; if (show) pcGuide.textContent = (G.mode === "pc_free") ? "緑のゴーストに従うとPCを狙えます" : "ミノを全て使って盤面を空にしよう"; } }
+    if (pcBanner) { const show = (G.mode === "pc_free" && settings.aiHint && G.aiHint && G.aiHint.pc); if (pcBanner._on !== show) { pcBanner._on = show; pcBanner.style.display = show ? "" : "none"; } }
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";
@@ -2488,9 +2600,9 @@
     // ★AIゴースト（最善手・別レイヤー）。金色=現在のミノを置く / 水色=ホールド交換して置く。既存ゴーストとは独立。
     if (settings.aiHint && G.aiHint && G.aiHint.cells && G.active && !G.over) {
       bctx.save();
-      const _hold = G.aiHint.useHold;
-      bctx.fillStyle = _hold ? "rgba(0,200,255,0.4)" : "rgba(255,215,0,0.4)";
-      bctx.strokeStyle = _hold ? "rgba(0,200,255,0.9)" : "rgba(255,215,0,0.85)";
+      const _g = G.aiHint; // 緑=PCルート / 水色=ホールド推奨 / 金色=現在ミノ最善
+      bctx.fillStyle = _g.pc ? "rgba(0,255,100,0.5)" : _g.useHold ? "rgba(0,200,255,0.4)" : "rgba(255,215,0,0.4)";
+      bctx.strokeStyle = _g.pc ? "rgba(0,255,100,0.95)" : _g.useHold ? "rgba(0,200,255,0.9)" : "rgba(255,215,0,0.85)";
       bctx.lineWidth = 1.5;
       const ac = G.aiHint.cells;
       for (let i = 0; i < ac.length; i++) {
@@ -2616,7 +2728,7 @@
       // ゲームパッド(Joy-Con等)
       pollGamepad(now);
       // gravity（自由のみ。テンプレ・最適化・タイムアタックは自動落下しない）
-      if (settings.gravity && G.active && !G.over && G.mode === "free") {
+      if (settings.gravity && G.active && !G.over && (G.mode === "free" || G.mode === "pc_free")) {
         if (now - G.lastGravity >= settings.gravityMs) {
           if (!tryMove(0, 1)) { hardDropNoExtend(); }
           G.lastGravity = now;
@@ -2871,6 +2983,9 @@
     else if (G.mode === "ultra") startUltra();
     else if (G.mode === "honeycup") startHoneycup();
     else if (G.mode === "finesse") { if (G.finesseTimed) startFinesse20(); else startFinesse(); }
+    else if (G.mode === "lst") startLST();
+    else if (G.mode === "pc_free") startPCFree();
+    else if (G.mode === "pc_challenge") startPCChallenge();
     else startFree();
   }
 
@@ -2882,6 +2997,8 @@
     if ($("btn-ultra")) $("btn-ultra").addEventListener("click", startUltra);
     if ($("btn-honeycup")) $("btn-honeycup").addEventListener("click", startHoneycup);
     if ($("btn-lst")) $("btn-lst").addEventListener("click", startLST);
+    if ($("btn-pc-free")) $("btn-pc-free").addEventListener("click", startPCFree);
+    if ($("btn-pc-challenge")) $("btn-pc-challenge").addEventListener("click", startPCChallenge);
     if ($("btn-honeycup-2")) $("btn-honeycup-2").addEventListener("click", startHoneycup);
     if ($("btn-hc-prev")) $("btn-hc-prev").addEventListener("click", function () { honeycupNext(-1); });
     if ($("btn-hc-next")) $("btn-hc-next").addEventListener("click", function () { honeycupNext(1); });

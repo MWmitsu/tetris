@@ -135,6 +135,9 @@ html { overflow-y: scroll; }
 /* タイムアタック/最適化のライブ表示。固定高さ＋等幅数字で、毎フレーム更新しても
    レイアウトがズレない（盤面の上下移動・topbarのスライドを防ぐ）。 */
 .lst-guide { font-size: 12px; color: var(--accent2); background: rgba(255,215,0,0.10); border: 1px solid rgba(255,215,0,0.35); border-radius: 6px; padding: 4px 10px; margin-bottom: 6px; text-align: center; line-height: 1.4; }
+.pc-banner { font-size: 14px; font-weight: 800; color: #062; background: rgba(0,255,100,0.20); border: 1px solid rgba(0,255,100,0.55); border-radius: 6px; padding: 5px 10px; margin-bottom: 6px; text-align: center; color: #1aff7a; }
+.pc-result { font-size: 13px; color: var(--text); margin: 4px 0; text-align: center; min-height: 22px; }
+.pc-result .ctrl-btn { display: inline-block; width: auto; margin-left: 8px; padding: 4px 10px; }
 .ta-time {
   height: 26px; line-height: 26px; min-height: 26px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
