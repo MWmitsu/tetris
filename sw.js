@@ -5,7 +5,7 @@
 //  オフライン時のみキャッシュから配信する。これにより更新が確実に届き、かつオフラインでも起動できる。
 //  キャッシュ名(バージョン)を変えると旧キャッシュは activate 時に破棄される。
 // ============================================================
-const CACHE = 'tetris-practice-v67';
+const CACHE = 'tetris-practice-v68';
 
 const CORE = [
   './',
@@ -13,7 +13,6 @@ const CORE = [
   './css/style.css',
   './manifest.webmanifest',
   './js/engine.js',
-  './js/lst_solver.js',
   './js/ai.js',
   './js/pc_solver.js',
   './js/pc_opener.js',

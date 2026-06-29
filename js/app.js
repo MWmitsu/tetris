@@ -25,7 +25,7 @@
   const $ = function (id) { return document.getElementById(id); };
   const statLines = $("stat-lines"), statPieces = $("stat-pieces"), statPc = $("stat-pc");
   const statTspin = $("stat-tspin"), statCycle = $("stat-cycle"), lstGuide = $("lst-guide");
-  const statLstPattern = $("stat-lst-pattern"), statLstPhase = $("stat-lst-phase"), statLstSlot = $("stat-lst-slot"), statLstBalance = $("stat-lst-balance");
+  const statLstCycle = $("stat-lst-cycle"), statLstForm = $("stat-lst-form");
   const statPcRate = $("stat-pc-rate"), statEmptyCells = $("stat-empty-cells"), pcGuide = $("pc-guide"), pcBanner = $("pc-banner");
   const hintBox = $("hint-text"), modeLabel = $("mode-label"), taTime = $("ta-time");
   function setTa(t) { if (taTime) taTime.textContent = (t == null ? "" : t); }
@@ -128,6 +128,9 @@
     pcRoute: null,         // ★PC練習(pc_free): 計画済み全手順 [{piece,col,rot}...]
     pcRouteStep: 0,        // ★PC練習: 現在の手順番号
     pcMsg: null,           // ★PC練習: 一時メッセージ（「🎉 PC！」）
+    lstForms: null,        // ★LST積み(シーケンシャル): 形配列
+    lstFormIdx: 0,         // ★LST積み: 現在の形インデックス
+    lstCycleCount: 0,      // ★LST積み: 完成した形の累計
   };
 
   // ===== テンプレ・レジストリ & 保存（localStorage） =====
@@ -1301,62 +1304,29 @@
     render();
   }
 
-  // ★AI: AIヒントを出すモードか（フリー/40LINE/Ultra、またはテンプレ練習で「LST積み」選択中）
-  // ★LST: LST特化(ビーム)を使う文脈か = 独立LSTモード or テンプレ練習でLST積み選択中
-  function isLstContext() {
-    if (G.mode === "lst") return true;
-    if (G.mode === "honeycup") { var t = tpCurTemplate(); return !!(t && t.category === "LST積み"); }
-    return false;
-  }
-  function aiModeActive() {
-    // AIヒントは LST積み と PC連パフェ のみ（フリー/40LINE/Ultra からは完全削除）
-    if (G.mode === "lst" || G.mode === "pc_free") return true;
-    return isLstContext(); // honeycup は LST積み選択時のみ（pc_challengeはヒント無し）
-  }
-  // ★AI: AIヒント計算（スポーン/undo時のみ。結果を G.aiHint にキャッシュ）
-  //   パターンA=現在のミノをそのまま置く / パターンB=ホールド(空ならネクスト1番目)と交換して置く
-  //   の最善手を比較し、スコアが高い方を採用。useHold で描画色を切替（金=現在 / 水=交換）。
+  // ★AI: AIヒント（緑ゴースト）は PC連パフェ(pc_free) 専用。LST積みは目標形オーバーレイで誘導（aiHint不使用）。
   function computeAiHint() {
     G.aiHint = null;
     if (!settings.aiHint || !window.TT_AI || !G.active || G.over) return;
-    if (!aiModeActive()) return; // テンプレ練習(LST以外)/最適化は対象外＝既存挙動を変えない
+    if (G.mode !== "pc_free") return; // pc_free 以外は緑ゴースト無し
     try {
-      if (G.mode === "pc_free") {
-        // 最初から全手順を計画 → 1手ずつ緑ゴーストで誘導
-        if (!G.pcRoute && window.TT_PC) {
-          var route = window.TT_PC.planPCRoute(G.grid, G.active.piece, G.hold, G.queue.slice(0, 9));
-          if (route) { G.pcRoute = route; G.pcRouteStep = 0; }
-        }
-        if (G.pcRoute && G.pcRouteStep < G.pcRoute.length) {
-          var step = G.pcRoute[G.pcRouteStep];
-          var mkHint = function (uh) {
-            var gy = E.dropY(G.grid, step.piece, step.rot, step.col, -2);
-            return { col: step.col, rot: step.rot, cells: E.absCells(step.piece, step.rot, step.col, gy), useHold: uh, pc: true, mode: "pc" };
-          };
-          if (step.piece === G.active.piece) G.aiHint = mkHint(false);
-          else if (step.piece === G.hold) G.aiHint = mkHint(true);
-          else if (!G.hold && G.queue[0] === step.piece) G.aiHint = mkHint(true); // ホールド空→次を引いて置く
-          else { G.pcRoute = null; G.pcRouteStep = 0; G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); } // ミノ不一致→次スポーンで再計画
-        } else {
-          G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); // ルート無し＝通常の金色
-        }
-      } else if (isLstContext()) {
-        // LST: 高さ適応ソルバー→役割が無ければ「縦穴列を除外した軽量Dellacherie」で右側を平らに積む
-        var st = window.TT_LST ? window.TT_LST.analyzeLSTBoard(G.grid) : null;
-        var well = st ? window.TT_LST.wellCol(st.pattern) : 0;
-        var lstHint = window.TT_LST ? window.TT_LST.getLSTHint(G.grid, G.active.piece, G.hold) : null;
-        var applied = false;
-        if (lstHint) {
-          var hp = lstHint.useHold ? (G.hold || G.active.piece) : G.active.piece;
-          var gy = E.dropY(G.grid, hp, lstHint.rot, lstHint.col, -2);
-          var cells = E.absCells(hp, lstHint.rot, lstHint.col, gy);
-          var ok = cells.every(function (c) { return c[0] >= 0 && c[0] < ROWS && c[1] >= 0 && c[1] < COLS; });
-          if (ok) { G.aiHint = { col: lstHint.col, rot: lstHint.rot, cells: cells, useHold: lstHint.useHold, mode: "lst" }; applied = true; }
-        }
-        if (!applied) G.aiHint = window.TT_AI.findBestMoveFastExcl(G.grid, G.active.piece, well);
+      // 最初から全手順を計画 → 1手ずつ緑ゴーストで誘導
+      if (!G.pcRoute && window.TT_PC) {
+        var route = window.TT_PC.planPCRoute(G.grid, G.active.piece, G.hold, G.queue.slice(0, 9));
+        if (route) { G.pcRoute = route; G.pcRouteStep = 0; }
+      }
+      if (G.pcRoute && G.pcRouteStep < G.pcRoute.length) {
+        var step = G.pcRoute[G.pcRouteStep];
+        var mkHint = function (uh) {
+          var gy = E.dropY(G.grid, step.piece, step.rot, step.col, -2);
+          return { col: step.col, rot: step.rot, cells: E.absCells(step.piece, step.rot, step.col, gy), useHold: uh, pc: true, mode: "pc" };
+        };
+        if (step.piece === G.active.piece) G.aiHint = mkHint(false);
+        else if (step.piece === G.hold) G.aiHint = mkHint(true);
+        else if (!G.hold && G.queue[0] === step.piece) G.aiHint = mkHint(true); // ホールド空→次を引いて置く
+        else { G.pcRoute = null; G.pcRouteStep = 0; G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); } // ミノ不一致→次スポーンで再計画
       } else {
-        // 通常(フリー/40LINE/Ultra)：軽量1手Dellacherie（LST偏りなし・Hold考慮なし＝金色固定・約2ms）
-        G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece);
+        G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); // ルート無し＝通常の金色
       }
     } catch (e) { G.aiHint = null; }
   }
@@ -1471,6 +1441,7 @@
   function lockPiece() {
     if (G.mode === "finesse") { handleFinesseLock(); return; }
     if (G.mode === "honeycup") { handleHoneycupLock(); return; }
+    if (G.mode === "lst") { handleLSTLock(); return; } // ★LST: シーケンシャルテンプレ（完成で次形へ）
     const a = G.active;
     judgeAiMove(a);          // ★AI: 設置を最善手と比較して AI評価を更新（固定前の盤面で判定）
     pcAdvance(a);            // ★PC練習: 計画ルートの手順を進める/逸脱なら再計画
@@ -1693,8 +1664,10 @@
     G.aiHint = null; G.aiEval = "-"; // ★AI: 開始/リセット直後はヒント無し・評価「-」
     G.lstTotal = 0; G.lstBest = 0; G.lstTSD = 0; // ★LST: 維持率(✅割合)・TSD数のセッション集計
     G.pcRoute = null; G.pcRouteStep = 0; G.pcMsg = null; G.pcCount = 0; // ★PC練習: 計画ルート/連パフェ数をクリア
+    G.lstForms = null; G.lstFormIdx = 0; G.lstCycleCount = 0; // ★LST積み(シーケンシャル)状態
     if (typeof pcAnimTimer !== "undefined" && pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; } // ★PC: 解答アニメ停止（モード切替/リセットで暴走防止）
     if (typeof pcMsgTimer !== "undefined" && pcMsgTimer) { clearTimeout(pcMsgTimer); pcMsgTimer = null; }
+    if (typeof lstAdvTimer !== "undefined" && lstAdvTimer) { clearTimeout(lstAdvTimer); lstAdvTimer = null; } // ★LST: 次形への自動進行タイマー停止
     setTa(""); // ライブ表示クリア（フリー/テンプレ等では非表示。各モード開始時に再設定）
     clearHeld();
     // リマップ取得モードが残っていると入力が吸われ続けるので解除
@@ -1708,15 +1681,68 @@
     flashHint("自由に積めます。←→移動 / ↑(X)右回転 Z左回転 / Space=ハードドロップ / Shift(C)=ホールド / ↩Undo", false);
     render();
   }
-  // ★LST積みモード（フリープレイ形式）：ゲームはフリーと同一。AIが毎手LST最善手をゴーストで提示。
+  // ★LST積みモード（シーケンシャルテンプレ方式）：lst_stackingの形を順に組み、完成で次へ自動進行・永久ループ。
+  let lstAdvTimer = null;
+  function getLSTForms() {
+    if (!window.TT_TEMPLATES || !window.TT_TEMPLATES.templates) return null;
+    const t = window.TT_TEMPLATES.templates.find(function (x) { return x.id === "lst_stacking"; });
+    return t ? t.forms : null;
+  }
+  function setupLSTForm(idx) {
+    const forms = G.lstForms; if (!forms || !forms.length) return;
+    const n = forms.length, i = ((idx % n) + n) % n;
+    const form = forms[i];
+    G.lstFormIdx = i;
+    G.grid = E.emptyGrid();
+    const pc = hcSetupCells(form);
+    for (let k = 0; k < pc.prefill.length; k++) { const p = pc.prefill[k]; G.grid[p[0]][p[1]] = HC_GRAY; }
+    G.hcTarget = pc.target;
+    G.hcTargetKey = {}; for (let k = 0; k < pc.target.length; k++) G.hcTargetKey[pc.target[k][0] + "," + pc.target[k][1]] = pc.target[k][2];
+    G.hcPrefillKey = {}; for (let k = 0; k < pc.prefill.length; k++) G.hcPrefillKey[pc.prefill[k][0] + "," + pc.prefill[k][1]] = 1;
+    G.hcDone = false;
+    G.bag = []; G.queue = []; G.hold = null; G.canHold = true; G.history = [];
+    ensureQueue(6); spawnFromQueue();
+    render();
+  }
   function startLST() {
     if (G.chain) G.chain.on = false;
     G.mode = "lst"; resetCommon();
-    if (window.TT_LST) window.TT_LST.resetState(); // ★LSTルールガイドの状態リセット
-    ensureQueue(6); spawnFromQueue();
+    const forms = getLSTForms();
+    if (!forms || !forms.length) { flashHint("LST形データが見つかりません。", true); render(); return; }
+    G.lstForms = forms; G.lstFormIdx = 0; G.lstCycleCount = 0;
+    setupLSTForm(0);
     modeLabel.textContent = "LST積み";
-    flashHint("金色ゴーストに従って積むとLST積みが続きます（水色=ホールド推奨）。", false);
+    flashHint("薄い色の目標形を組もう！完成すると次の形へ進みます（永久ループ）。R=やり直し。", false);
     render();
+  }
+  function checkLSTFormComplete() {
+    const cnt = honeycupCount();
+    return (!G.hcDone) && G.hcTarget && G.hcTarget.length > 0 && cnt.filledTarget >= G.hcTarget.length;
+  }
+  function handleLSTLock() {
+    const a = G.active;
+    pushHistory();
+    let spin = "none";
+    if (a.piece === "T" && G.lastRotation) spin = E.tSpinType(G.grid, a, G.lastKick); // T-Spin数カウント用
+    E.lock(G.grid, a.piece, a.rot, a.px, a.py);
+    G.pieces++;
+    if (spin !== "none") G.tspins++;
+    const done = checkLSTFormComplete(); // 消去前に完成判定
+    const cl = E.clearLines(G.grid); G.grid = cl.grid;
+    if (cl.cleared > 0) { G.lines += cl.cleared; if (boardEmpty()) G.pcs++; }
+    G.active = null;
+    if (done) {
+      G.hcDone = true; sfx("perfect"); showCompletion("✓ 完成！");
+      G.lstCycleCount = (G.lstCycleCount || 0) + 1;
+      const nextIdx = (G.lstFormIdx + 1) % G.lstForms.length;
+      flashHint("✓ 完成！ 次のLST形へ…（累計 " + G.lstCycleCount + " 形クリア）", false);
+      render();
+      if (lstAdvTimer) clearTimeout(lstAdvTimer);
+      lstAdvTimer = setTimeout(function () { if (G.mode === "lst") setupLSTForm(nextIdx); }, 500);
+      return;
+    }
+    if (cl.cleared > 0) clearSfx(spin, cl.cleared, boardEmpty());
+    spawnFromQueue(); render(); // 失敗しても継続
   }
 
   // ===== PC（パーフェクトクリア）練習 A-1自由 / A-2課題 =====
@@ -2546,21 +2572,10 @@
     if (statPc.textContent != G.pcs) statPc.textContent = G.pcs;
     if (statTspin && statTspin.textContent != G.tspins) statTspin.textContent = G.tspins;
     if (statCycle && statCycle.textContent != G.cycles) statCycle.textContent = G.cycles;
-    // ★LST: パターン/フェーズ/Tスロット/左右バランス（lst文脈のみ。analyzeLSTBoardで毎描画分析）
-    const lstCtx = isLstContext();
+    // ★LST積み(シーケンシャル): サイクル数(完成累計)・現在の形（lstモードのみ）
     const setStat = (el, v) => { if (el && el.textContent != v) el.textContent = v; };
-    if (statLstPattern || statLstPhase || statLstSlot || statLstBalance) {
-      if (lstCtx && window.TT_LST) {
-        const st = window.TT_LST.analyzeLSTBoard(G.grid);
-        setStat(statLstPattern, st.pattern);
-        const ph = st.phase === "empty" ? "新サイクル" : st.phase === "base_placed" ? "底ミノ済み" : st.phase === "roof_placed" ? "屋根済み" : "崩れ";
-        setStat(statLstPhase, ph);
-        const slot = (st.pattern === "right" ? st.tSlotRight : st.tSlotLeft) || st.tSlotLeft || st.tSlotRight;
-        setStat(statLstSlot, slot ? "✅ あり" : "❌ なし");
-        const diff = Math.round(st.leftAvg - st.rightAvg);
-        setStat(statLstBalance, diff === 0 ? "均等" : diff > 0 ? ("左+" + diff) : ("右+" + (-diff)));
-      } else { setStat(statLstPattern, "-"); setStat(statLstPhase, "-"); setStat(statLstSlot, "-"); setStat(statLstBalance, "-"); }
-    }
+    if (statLstCycle) setStat(statLstCycle, (G.mode === "lst") ? String(G.lstCycleCount || 0) : "-");
+    if (statLstForm) setStat(statLstForm, (G.mode === "lst" && G.lstForms) ? ("形 " + (G.lstFormIdx + 1) + " / " + G.lstForms.length) : "-");
     if (lstGuide) { const show = (G.mode === "lst"); if (lstGuide._on !== show) { lstGuide._on = show; lstGuide.style.display = show ? "" : "none"; } } // ★ガイドテキスト
     // ★PC: PC率/成功率・残りセル/成功数・ガイド・バナー
     if (statPcRate) { let v = "-"; if (G.mode === "pc_free") v = (G.pcCount || 0) + "連"; else if (G.mode === "pc_challenge") v = Math.round(pcChWins / Math.max(1, pcChTotal) * 100) + "%"; if (statPcRate.textContent != v) statPcRate.textContent = v; }
@@ -2591,7 +2606,7 @@
     }
 
     // テンプレ練習: 色の目標形(まだ置いていないセル)を薄く＋細枠で表示。完成後(継続中)は非表示。
-    if (G.mode === "honeycup" && G.hcTarget && !G.hcDone) {
+    if ((G.mode === "honeycup" || G.mode === "lst") && G.hcTarget && !G.hcDone) {
       bctx.save();
       for (let i = 0; i < G.hcTarget.length; i++) {
         const r = G.hcTarget[i][0], c = G.hcTarget[i][1], ch = G.hcTarget[i][2];
