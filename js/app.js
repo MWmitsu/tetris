@@ -25,6 +25,7 @@
   const $ = function (id) { return document.getElementById(id); };
   const statLines = $("stat-lines"), statPieces = $("stat-pieces"), statPc = $("stat-pc");
   const statTspin = $("stat-tspin"), statCycle = $("stat-cycle"), statAi = $("stat-ai"), statTslot = $("stat-tslot");
+  const statTsd = $("stat-tsd"), statKeep = $("stat-keep"), lstGuide = $("lst-guide");
   const hintBox = $("hint-text"), modeLabel = $("mode-label"), taTime = $("ta-time");
   function setTa(t) { if (taTime) taTime.textContent = (t == null ? "" : t); }
 
@@ -1295,10 +1296,15 @@
   }
 
   // ★AI: AIヒントを出すモードか（フリー/40LINE/Ultra、またはテンプレ練習で「LST積み」選択中）
-  function aiModeActive() {
-    if (G.mode === "free" || G.mode === "sprint" || G.mode === "ultra") return true;
+  // ★LST: LST特化(ビーム)を使う文脈か = 独立LSTモード or テンプレ練習でLST積み選択中
+  function isLstContext() {
+    if (G.mode === "lst") return true;
     if (G.mode === "honeycup") { var t = tpCurTemplate(); return !!(t && t.category === "LST積み"); }
     return false;
+  }
+  function aiModeActive() {
+    if (G.mode === "free" || G.mode === "sprint" || G.mode === "ultra" || G.mode === "lst") return true;
+    return isLstContext(); // honeycup は LST積み選択時のみ
   }
   // ★AI: AIヒント計算（スポーン/undo時のみ。結果を G.aiHint にキャッシュ）
   //   パターンA=現在のミノをそのまま置く / パターンB=ホールド(空ならネクスト1番目)と交換して置く
@@ -1308,10 +1314,8 @@
     if (!settings.aiHint || !window.TT_AI || !G.active || G.over) return;
     if (!aiModeActive()) return; // テンプレ練習(LST以外)/最適化は対象外＝既存挙動を変えない
     try {
-      var t = (G.mode === "honeycup") ? tpCurTemplate() : null;
-      var isLST = !!(t && t.category === "LST積み");
-      if (isLST) {
-        // LST積み選択中：ビームサーチ＋LSTボーナス（Hold/Next5考慮・useHold付き・約50ms）
+      if (isLstContext()) {
+        // LSTモード / LST積みテンプレ：ビームサーチ＋LSTボーナス（Hold/Next5考慮・useHold付き・約50ms）
         G.aiHint = window.TT_AI.findBestMove(G.grid, G.active.piece, G.hold, G.queue.slice(0, 5));
       } else {
         // 通常(フリー/40LINE/Ultra)：軽量1手Dellacherie（LST偏りなし・Hold考慮なし＝金色固定・約2ms）
@@ -1324,8 +1328,9 @@
   function judgeAiMove(a) {
     if (!settings.aiHint || !G.aiHint || !window.TT_AI || !a) return;
     try {
+      G.lstTotal++; // ★LST: 維持率の母数（AIヒントがある手＝毎手）
       var playerKey = E.cellKey(E.absCells(a.piece, a.rot, a.px, a.py));
-      if (playerKey === E.cellKey(G.aiHint.cells)) { G.aiEval = "✅ 最善手"; return; }
+      if (playerKey === E.cellKey(G.aiHint.cells)) { G.lstBest++; G.aiEval = "✅ 最善手"; return; }
       // 評価軸はヒント生成時と同じものを使う（fast=純Dellacherie / lst=LST評価込み）
       var evalFn = (G.aiHint.mode === "lst") ? window.TT_AI.evaluatePlacement : window.TT_AI.evaluatePlacementFast;
       var aiPiece = G.aiHint.useHold ? (G.hold || (G.queue && G.queue[0])) : a.piece; // 最善手が使うミノ
@@ -1546,6 +1551,7 @@
       if (empty) { G.pcs++; msg = (msg ? msg + " " : "") + "パーフェクトクリア！🎉"; }
     }
     if (G.mode === "ultra") ultraAddScore(spin, cl.cleared, cl.cleared > 0 && boardEmpty()); // スコア加算
+    if (G.mode === "lst" && spin === "full" && cl.cleared === 2) G.lstTSD++; // ★LST: TSD成立カウント
     clearSfx(spin, cl.cleared, boardEmpty());
     G.active = null;
     // 次へ
@@ -1637,6 +1643,7 @@
     G.score = 0; G.combo = -1; G.b2b = false; // Ultraスコア状態（REN/Back-to-Back）
     G.hcTarget = null; G.hcTargetKey = null; G.hcPrefillKey = null; G.hcDone = false; // はちみつ砲練習状態
     G.aiHint = null; G.aiEval = "-"; // ★AI: 開始/リセット直後はヒント無し・評価「-」
+    G.lstTotal = 0; G.lstBest = 0; G.lstTSD = 0; // ★LST: 維持率(✅割合)・TSD数のセッション集計
     setTa(""); // ライブ表示クリア（フリー/テンプレ等では非表示。各モード開始時に再設定）
     clearHeld();
     // リマップ取得モードが残っていると入力が吸われ続けるので解除
@@ -1648,6 +1655,15 @@
     ensureQueue(6); spawnFromQueue();
     modeLabel.textContent = "フリー";
     flashHint("自由に積めます。←→移動 / ↑(X)右回転 Z左回転 / Space=ハードドロップ / Shift(C)=ホールド / ↩Undo", false);
+    render();
+  }
+  // ★LST積みモード（フリープレイ形式）：ゲームはフリーと同一。AIが毎手LST最善手をゴーストで提示。
+  function startLST() {
+    if (G.chain) G.chain.on = false;
+    G.mode = "lst"; resetCommon();
+    ensureQueue(6); spawnFromQueue();
+    modeLabel.textContent = "LST積み";
+    flashHint("金色ゴーストに従って積むとLST積みが続きます（水色=ホールド推奨）。", false);
     render();
   }
   function startTemplate(id) {
@@ -2362,14 +2378,22 @@
     if (statTspin && statTspin.textContent != G.tspins) statTspin.textContent = G.tspins;
     if (statCycle && statCycle.textContent != G.cycles) statCycle.textContent = G.cycles;
     if (statAi) { const aiTxt = settings.aiHint ? G.aiEval : "-"; if (statAi.textContent != aiTxt) statAi.textContent = aiTxt; } // ★AI評価
-    if (statTslot) { // ★Tスロット維持度（テンプレ練習でLST積み選択中のみ。毎描画で TT_AI.tSlotScore を算出）
+    const lstCtx = isLstContext(); // LSTモード or LST積みテンプレ
+    if (statTslot) { // ★Tスロット維持度（LST文脈のみ。毎描画で TT_AI.tSlotScore=detectLSTScore を算出）
       let tsTxt = "-";
-      if (settings.aiHint && G.mode === "honeycup" && aiModeActive() && window.TT_AI) {
+      if (settings.aiHint && lstCtx && window.TT_AI) {
         const ts = window.TT_AI.tSlotScore(G.grid);
         tsTxt = ts >= 20 ? "✅ 維持中" : ts >= 10 ? "🟡 やや崩れ" : "❌ 崩れ";
       }
       if (statTslot.textContent != tsTxt) statTslot.textContent = tsTxt;
     }
+    if (statTsd) { const v = (G.mode === "lst") ? String(G.lstTSD || 0) : "-"; if (statTsd.textContent != v) statTsd.textContent = v; } // ★TSD数（LSTモード）
+    if (statKeep) { // ★維持率（LSTモード・✅最善手の割合）
+      let kv = "-";
+      if (G.mode === "lst") kv = (G.lstTotal > 0) ? (Math.round(G.lstBest / G.lstTotal * 100) + "%") : "0%";
+      if (statKeep.textContent != kv) statKeep.textContent = kv;
+    }
+    if (lstGuide) { const show = (G.mode === "lst"); if (lstGuide._on !== show) { lstGuide._on = show; lstGuide.style.display = show ? "" : "none"; } } // ★ガイドテキスト
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";
@@ -2857,6 +2881,7 @@
     if ($("btn-sprint")) $("btn-sprint").addEventListener("click", startSprint);
     if ($("btn-ultra")) $("btn-ultra").addEventListener("click", startUltra);
     if ($("btn-honeycup")) $("btn-honeycup").addEventListener("click", startHoneycup);
+    if ($("btn-lst")) $("btn-lst").addEventListener("click", startLST);
     if ($("btn-honeycup-2")) $("btn-honeycup-2").addEventListener("click", startHoneycup);
     if ($("btn-hc-prev")) $("btn-hc-prev").addEventListener("click", function () { honeycupNext(-1); });
     if ($("btn-hc-next")) $("btn-hc-next").addEventListener("click", function () { honeycupNext(1); });

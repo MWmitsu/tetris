@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=61" />
+  <link rel="stylesheet" href="css/style.css?v=62" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v61</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v62</span></div>
   </header>
 
   <main class="layout">
@@ -34,6 +34,8 @@
         <div class="stat"><span>巡目</span><b id="stat-cycle">0</b></div>
         <div class="stat"><span>AI評価</span><b id="stat-ai">-</b></div>
         <div class="stat"><span>Tスロット</span><b id="stat-tslot">-</b></div>
+        <div class="stat"><span>TSD数</span><b id="stat-tsd">-</b></div>
+        <div class="stat"><span>維持率</span><b id="stat-keep">-</b></div>
       </div>
       <div class="panel">
         <div class="panel-title">モード</div>
@@ -41,6 +43,7 @@
         <button id="btn-sprint" class="ctrl-btn">40LINE</button>
         <button id="btn-ultra" class="ctrl-btn">Ultra (3分)</button>
         <button id="btn-honeycup" class="ctrl-btn">テンプレ練習</button>
+        <button id="btn-lst" class="ctrl-btn">LST積み</button>
         <button id="btn-finesse" class="ctrl-btn">最適化</button>
         <button id="btn-finesse-20s" class="ctrl-btn">最適化 20秒</button>
         <button id="btn-reset" class="ctrl-btn primary">リセット (R)</button>
@@ -50,6 +53,7 @@
 
     <!-- 中央: 盤面 -->
     <section class="center">
+      <div id="lst-guide" class="lst-guide" style="display:none">金色ゴーストに従って積むとLST積みが続きます（水色＝ホールド推奨）</div>
       <div class="board-wrap">
         <canvas id="board" width="300" height="600"></canvas>
         <div id="tp-flash" class="tp-flash"></div>
@@ -154,19 +158,19 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=61"></script>
-  <script src="js/ai.js?v=61"></script>
-  <script src="js/templates.js?v=61"></script>
-  <script src="js/catalog.js?v=61"></script>
-  <script src="js/catalog_data.js?v=61"></script>
-  <script src="js/fumen.js?v=61"></script>
-  <script src="js/honeycup.js?v=61"></script>
-  <script src="js/honeycup_patterns.js?v=61"></script>
-  <script src="js/templates_practice.js?v=61"></script>
-  <script src="js/templates_midgame.js?v=61"></script>
-  <script src="js/templates_lst.js?v=61"></script>
-  <script src="js/finesse.js?v=61"></script>
-  <script src="js/app.js?v=61"></script>
+  <script src="js/engine.js?v=62"></script>
+  <script src="js/ai.js?v=62"></script>
+  <script src="js/templates.js?v=62"></script>
+  <script src="js/catalog.js?v=62"></script>
+  <script src="js/catalog_data.js?v=62"></script>
+  <script src="js/fumen.js?v=62"></script>
+  <script src="js/honeycup.js?v=62"></script>
+  <script src="js/honeycup_patterns.js?v=62"></script>
+  <script src="js/templates_practice.js?v=62"></script>
+  <script src="js/templates_midgame.js?v=62"></script>
+  <script src="js/templates_lst.js?v=62"></script>
+  <script src="js/finesse.js?v=62"></script>
+  <script src="js/app.js?v=62"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>
