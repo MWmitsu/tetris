@@ -248,6 +248,20 @@ window.TT_AI = (function () {
     return { col: best.col, rot: best.rot, score: best.score, cells: best.cells, useHold: false, mode: "fast" };
   }
 
+  // 指定列に触れない範囲での軽量1手Dellacherie（LSTのテトリス縦穴を埋めずに右側を平らに積む用）。
+  function findBestMoveFastExcl(grid, piece, excludeCol) {
+    var E = window.TT; if (!E || !E.PIECES[piece]) return null;
+    var d = dims(), COLS = d.COLS, base = toBinary(grid), best = null;
+    for (var rot = 0; rot < 4; rot++) for (var px = -2; px < COLS; px++) {
+      var res = placementResultWith(base, piece, rot, px, evaluateDellacherie);
+      if (!res) continue;
+      if (excludeCol != null) { var touches = false; for (var i = 0; i < res.cells.length; i++) if (res.cells[i][1] === excludeCol) { touches = true; break; } if (touches) continue; }
+      if (!best || res.score > best.score) best = res;
+    }
+    if (!best) return findBestMoveFast(grid, piece); // 全配置が除外列に触れる→制約解除
+    return { col: best.col, rot: best.rot, score: best.score, cells: best.cells, useHold: false, mode: "fast" };
+  }
+
   // プレイヤー配置の評価（採点用・1手）。LST評価込み(evaluateBoard) と 純Dellacherie の2種。
   function evaluatePlacement(grid, piece, rot, px) {
     return placementResultWith(toBinary(grid), piece, rot, px, evaluateBoard);
@@ -259,6 +273,7 @@ window.TT_AI = (function () {
   return {
     findBestMove: findBestMove,
     findBestMoveFast: findBestMoveFast,
+    findBestMoveFastExcl: findBestMoveFastExcl,
     evaluatePlacement: evaluatePlacement,
     evaluatePlacementFast: evaluatePlacementFast,
     evaluateBoard: evaluateBoard,

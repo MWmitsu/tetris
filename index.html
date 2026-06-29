@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=66" />
+  <link rel="stylesheet" href="css/style.css?v=67" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v66</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v67</span></div>
   </header>
 
   <main class="layout">
@@ -32,8 +32,10 @@
         <div class="stat"><span>T-Spin</span><b id="stat-tspin">0</b></div>
         <div class="stat"><span>PC</span><b id="stat-pc">0</b></div>
         <div class="stat"><span>巡目</span><b id="stat-cycle">0</b></div>
+        <div class="stat"><span>LSTパターン</span><b id="stat-lst-pattern">-</b></div>
         <div class="stat"><span>フェーズ(LST)</span><b id="stat-lst-phase">-</b></div>
         <div class="stat"><span>Tスロット(LST)</span><b id="stat-lst-slot">-</b></div>
+        <div class="stat"><span>左右バランス</span><b id="stat-lst-balance">-</b></div>
         <div class="stat"><span>PC率/成功率</span><b id="stat-pc-rate">-</b></div>
         <div class="stat"><span>残り/成功数</span><b id="stat-empty-cells">-</b></div>
       </div>
@@ -162,22 +164,22 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=66"></script>
-  <script src="js/lst_guide.js?v=66"></script>
-  <script src="js/ai.js?v=66"></script>
-  <script src="js/pc_solver.js?v=66"></script>
-  <script src="js/pc_opener.js?v=66"></script>
-  <script src="js/templates.js?v=66"></script>
-  <script src="js/catalog.js?v=66"></script>
-  <script src="js/catalog_data.js?v=66"></script>
-  <script src="js/fumen.js?v=66"></script>
-  <script src="js/honeycup.js?v=66"></script>
-  <script src="js/honeycup_patterns.js?v=66"></script>
-  <script src="js/templates_practice.js?v=66"></script>
-  <script src="js/templates_midgame.js?v=66"></script>
-  <script src="js/templates_lst.js?v=66"></script>
-  <script src="js/finesse.js?v=66"></script>
-  <script src="js/app.js?v=66"></script>
+  <script src="js/engine.js?v=67"></script>
+  <script src="js/lst_solver.js?v=67"></script>
+  <script src="js/ai.js?v=67"></script>
+  <script src="js/pc_solver.js?v=67"></script>
+  <script src="js/pc_opener.js?v=67"></script>
+  <script src="js/templates.js?v=67"></script>
+  <script src="js/catalog.js?v=67"></script>
+  <script src="js/catalog_data.js?v=67"></script>
+  <script src="js/fumen.js?v=67"></script>
+  <script src="js/honeycup.js?v=67"></script>
+  <script src="js/honeycup_patterns.js?v=67"></script>
+  <script src="js/templates_practice.js?v=67"></script>
+  <script src="js/templates_midgame.js?v=67"></script>
+  <script src="js/templates_lst.js?v=67"></script>
+  <script src="js/finesse.js?v=67"></script>
+  <script src="js/app.js?v=67"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>

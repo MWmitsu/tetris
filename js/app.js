@@ -25,7 +25,7 @@
   const $ = function (id) { return document.getElementById(id); };
   const statLines = $("stat-lines"), statPieces = $("stat-pieces"), statPc = $("stat-pc");
   const statTspin = $("stat-tspin"), statCycle = $("stat-cycle"), lstGuide = $("lst-guide");
-  const statLstPhase = $("stat-lst-phase"), statLstSlot = $("stat-lst-slot");
+  const statLstPattern = $("stat-lst-pattern"), statLstPhase = $("stat-lst-phase"), statLstSlot = $("stat-lst-slot"), statLstBalance = $("stat-lst-balance");
   const statPcRate = $("stat-pc-rate"), statEmptyCells = $("stat-empty-cells"), pcGuide = $("pc-guide"), pcBanner = $("pc-banner");
   const hintBox = $("hint-text"), modeLabel = $("mode-label"), taTime = $("ta-time");
   function setTa(t) { if (taTime) taTime.textContent = (t == null ? "" : t); }
@@ -1341,13 +1341,19 @@
           G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); // ルート無し＝通常の金色
         }
       } else if (isLstContext()) {
-        // LST: まずルールベースガイド（状態機械）→ 返せなければ軽量Dellacherie(fast)へフォールバック
+        // LST: 高さ適応ソルバー→役割が無ければ「縦穴列を除外した軽量Dellacherie」で右側を平らに積む
+        var st = window.TT_LST ? window.TT_LST.analyzeLSTBoard(G.grid) : null;
+        var well = st ? window.TT_LST.wellCol(st.pattern) : 0;
         var lstHint = window.TT_LST ? window.TT_LST.getLSTHint(G.grid, G.active.piece, G.hold) : null;
-        if (lstHint && lstHint.cells && lstHint.cells.length === 4) {
-          G.aiHint = { col: lstHint.col, rot: lstHint.rot, cells: lstHint.cells, useHold: false, mode: "lst" };
-        } else {
-          G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece);
+        var applied = false;
+        if (lstHint) {
+          var hp = lstHint.useHold ? (G.hold || G.active.piece) : G.active.piece;
+          var gy = E.dropY(G.grid, hp, lstHint.rot, lstHint.col, -2);
+          var cells = E.absCells(hp, lstHint.rot, lstHint.col, gy);
+          var ok = cells.every(function (c) { return c[0] >= 0 && c[0] < ROWS && c[1] >= 0 && c[1] < COLS; });
+          if (ok) { G.aiHint = { col: lstHint.col, rot: lstHint.rot, cells: cells, useHold: lstHint.useHold, mode: "lst" }; applied = true; }
         }
+        if (!applied) G.aiHint = window.TT_AI.findBestMoveFastExcl(G.grid, G.active.piece, well);
       } else {
         // 通常(フリー/40LINE/Ultra)：軽量1手Dellacherie（LST偏りなし・Hold考慮なし＝金色固定・約2ms）
         G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece);
@@ -1468,7 +1474,6 @@
     const a = G.active;
     judgeAiMove(a);          // ★AI: 設置を最善手と比較して AI評価を更新（固定前の盤面で判定）
     pcAdvance(a);            // ★PC練習: 計画ルートの手順を進める/逸脱なら再計画
-    if (G.mode === "lst" && window.TT_LST) window.TT_LST.updateState(a.piece); // ★LST: 底/屋根フェーズ更新
     pushHistory();
     // T-spin 判定（固定前の盤面で。Tの隅セルはT自身が占めないため pre-lock で正しい）
     let spin = "none";
@@ -2541,10 +2546,21 @@
     if (statPc.textContent != G.pcs) statPc.textContent = G.pcs;
     if (statTspin && statTspin.textContent != G.tspins) statTspin.textContent = G.tspins;
     if (statCycle && statCycle.textContent != G.cycles) statCycle.textContent = G.cycles;
-    // ★LST: フェーズ(底/屋根)・Tスロット維持（lstモードのみ。フリー等はAI表示を完全撤去済み）
+    // ★LST: パターン/フェーズ/Tスロット/左右バランス（lst文脈のみ。analyzeLSTBoardで毎描画分析）
     const lstCtx = isLstContext();
-    if (statLstPhase) { const v = (G.mode === "lst" && window.TT_LST) ? (window.TT_LST.phase() === "roof" ? "屋根を置く" : "底を置く") : "-"; if (statLstPhase.textContent != v) statLstPhase.textContent = v; }
-    if (statLstSlot) { let v = "-"; if (lstCtx && window.TT_LST) v = window.TT_LST.findTSlot(G.grid) ? "✅ 維持中" : "❌ 崩れ"; if (statLstSlot.textContent != v) statLstSlot.textContent = v; }
+    const setStat = (el, v) => { if (el && el.textContent != v) el.textContent = v; };
+    if (statLstPattern || statLstPhase || statLstSlot || statLstBalance) {
+      if (lstCtx && window.TT_LST) {
+        const st = window.TT_LST.analyzeLSTBoard(G.grid);
+        setStat(statLstPattern, st.pattern);
+        const ph = st.phase === "empty" ? "新サイクル" : st.phase === "base_placed" ? "底ミノ済み" : st.phase === "roof_placed" ? "屋根済み" : "崩れ";
+        setStat(statLstPhase, ph);
+        const slot = (st.pattern === "right" ? st.tSlotRight : st.tSlotLeft) || st.tSlotLeft || st.tSlotRight;
+        setStat(statLstSlot, slot ? "✅ あり" : "❌ なし");
+        const diff = Math.round(st.leftAvg - st.rightAvg);
+        setStat(statLstBalance, diff === 0 ? "均等" : diff > 0 ? ("左+" + diff) : ("右+" + (-diff)));
+      } else { setStat(statLstPattern, "-"); setStat(statLstPhase, "-"); setStat(statLstSlot, "-"); setStat(statLstBalance, "-"); }
+    }
     if (lstGuide) { const show = (G.mode === "lst"); if (lstGuide._on !== show) { lstGuide._on = show; lstGuide.style.display = show ? "" : "none"; } } // ★ガイドテキスト
     // ★PC: PC率/成功率・残りセル/成功数・ガイド・バナー
     if (statPcRate) { let v = "-"; if (G.mode === "pc_free") v = (G.pcCount || 0) + "連"; else if (G.mode === "pc_challenge") v = Math.round(pcChWins / Math.max(1, pcChTotal) * 100) + "%"; if (statPcRate.textContent != v) statPcRate.textContent = v; }
