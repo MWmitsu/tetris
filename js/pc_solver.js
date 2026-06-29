@@ -135,27 +135,63 @@ window.TT_PC = (function () {
     return null;
   }
 
-  /* 全ルート計画: 現在＋ネクスト(＋ホールド)で「出現順そのまま」置いてPCになる全手順を返す。
-     PCは総セルが10の倍数のミノ数でのみ成立 → 有効な手数を小さい順に試し、最初の解を返す。
-     戻り値 [{piece,col,rot}...] | null。プレイヤーが追える自然な順序（並べ替えはホールド1回ぶんのみ別系列で試行）。 */
-  function planPCRoute(grid, currentPiece, heldPiece, nextPieces) {
-    nextPieces = nextPieces || [];
-    var F = countFilled(toBinary(grid));
-    function tryPool(arr) {
-      for (var n = 1; n <= arr.length; n++) {
-        if ((F + 4 * n) % 10 !== 0) continue;       // 全消去には総セルが10の倍数
-        var res = canAchievePC(grid, arr.slice(0, n));
-        if (res.possible && res.solution && res.solution.length) return res.solution;
-      }
-      return null;
+  // 底から到達可能な空セル数（参考用・仕様準拠）
+  function countReachableEmpty(grid) {
+    var b = toBinary(grid), count = 0;
+    for (var r = ROWS - 1; r >= 0; r--) {
+      var allEmpty = b[r].every(function (c) { return c === 0; });
+      if (allEmpty) { count += COLS; break; }
+      count += b[r].filter(function (c) { return c === 0; }).length;
+      if (b[r].some(function (c) { return c === 1; })) break;
     }
-    var r = tryPool([currentPiece].concat(nextPieces));
-    if (r) return r;
-    if (heldPiece) { r = tryPool([heldPiece, currentPiece].concat(nextPieces)); if (r) return r; }
+    return count;
+  }
+
+  /* ホールドによる並べ替えを許す PC探索DFS（各手で先頭 or 2番目=ホールドを置ける）。
+     grid01=2値盤面 / pieces=残りミノ / 戻り値 usedOrder([{piece,col,rot,useHold}]) | null。 */
+  function searchPC(grid01, pieces, usedOrder, depth, budget) {
+    if (budget.n++ > budget.limit) return null;
+    if (pieces.length === 0) return isEmpty(grid01) ? usedOrder : null;
+    var F = countFilled(grid01), R = pieces.length;
+    if ((F + 4 * R) % 10 !== 0) return null;
+    var H = (F + 4 * R) / 10; if (H > ROWS) return null;
+    var top = ROWS - H;
+    for (var r = 0; r < top; r++) for (var c = 0; c < COLS; c++) if (grid01[r][c]) return null;
+    var cell = lowestEmpty(grid01, top); if (!cell) return null;
+    // 試す手: 先頭(useHold=false) と 2番目(=ホールド, useHold=true)
+    var idxs = [0];
+    if (pieces.length >= 2 && pieces[1] !== pieces[0]) idxs.push(1);
+    for (var ii = 0; ii < idxs.length; ii++) {
+      var idx = idxs[ii], piece = pieces[idx];
+      var cands = placementsCovering(grid01, piece, cell, top);
+      for (var k = 0; k < cands.length; k++) {
+        var nb = clearBin(applyCells(grid01, cands[k].cells));
+        if (hasHoles(nb)) continue;
+        var rest = (idx === 0) ? pieces.slice(1) : [pieces[0]].concat(pieces.slice(2));
+        var res = searchPC(nb, rest, usedOrder.concat([{ piece: piece, col: cands[k].px, rot: cands[k].rot, useHold: (idx === 1) }]), depth + 1, budget);
+        if (res) return res;
+      }
+    }
     return null;
   }
 
-  return { canAchievePC: canAchievePC, findPCHint: findPCHint, generatePC: generatePC, planPCRoute: planPCRoute,
+  /* 全ルート計画（開幕PC向け）: 現在＋ホールド＋ネクスト9 からホールド並べ替えを使ってPC手順を探す。
+     PC可能なミノ数を小さい順に試す。戻り値 [{piece,col,rot,useHold}...] | null。 */
+  function planPCRoute(grid, currentPiece, heldPiece, nextPieces) {
+    nextPieces = nextPieces || [];
+    var allPieces = [currentPiece];
+    if (heldPiece) allPieces.push(heldPiece);
+    allPieces = allPieces.concat(nextPieces.slice(0, 9));
+    var b0 = toBinary(grid), F = countFilled(b0);
+    for (var n = 2; n <= Math.min(10, allPieces.length); n++) {
+      if ((F + n * 4) % 10 !== 0) continue;       // PC可能なミノ数（総セルが10の倍数）
+      var res = searchPC(b0.map(function (row) { return row.slice(); }), allPieces.slice(0, n), [], 0, { n: 0, limit: 12000 });
+      if (res) return res;
+    }
+    return null;
+  }
+
+  return { canAchievePC: canAchievePC, findPCHint: findPCHint, generatePC: generatePC, planPCRoute: planPCRoute, countReachableEmpty: countReachableEmpty,
            _util: { toBinary: toBinary, countFilled: countFilled, isEmpty: isEmpty, dropPlace: dropPlace, clearBin: clearBin } };
 })();
 

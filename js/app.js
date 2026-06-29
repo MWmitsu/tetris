@@ -1273,9 +1273,9 @@
   // ===== スポーン =====
   function spawnFromQueue() {
     let piece;
-    if (G.mode === "pc_challenge") {
-      // 課題の固定ミノ列のみ供給（bag補充しない）。尽きたら=PC未達で終了。
-      if (!G.queue.length) { pcChallengeExhausted(); return; }
+    if (G.mode === "pc_challenge" || G.mode === "pc_free") {
+      // 固定ミノ列のみ供給（bag補充しない）。尽きたら: 課題=未達終了 / 開幕PC=次の問題を生成。
+      if (!G.queue.length) { if (G.mode === "pc_challenge") pcChallengeExhausted(); else newPcOpening(); return; }
       piece = G.queue.shift();
     } else if (G.mode === "template" && tplType() === "steps") {
       if (G.stepIndex >= G.template.steps.length) { onTemplateComplete(); return; }
@@ -1336,13 +1336,19 @@
           };
           if (step.piece === G.active.piece) G.aiHint = mkHint(false);
           else if (step.piece === G.hold) G.aiHint = mkHint(true);
+          else if (!G.hold && G.queue[0] === step.piece) G.aiHint = mkHint(true); // ホールド空→次を引いて置く
           else { G.pcRoute = null; G.pcRouteStep = 0; G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); } // ミノ不一致→次スポーンで再計画
         } else {
           G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); // ルート無し＝通常の金色
         }
       } else if (isLstContext()) {
-        // LSTモード / LST積みテンプレ：ビームサーチ＋LSTボーナス（Hold/Next5考慮・useHold付き・約50ms）
-        G.aiHint = window.TT_AI.findBestMove(G.grid, G.active.piece, G.hold, G.queue.slice(0, 5));
+        // LST: まずルールベースガイド（lst_guide.js）→ 返せなければビームへフォールバック
+        var lstHint = window.TT_LST ? window.TT_LST.getLSTHint(G.grid, G.active.piece, G.hold) : null;
+        if (lstHint && lstHint.cells && lstHint.cells.length === 4) {
+          G.aiHint = { col: lstHint.col, rot: lstHint.rot, cells: lstHint.cells, useHold: false, mode: "lst" };
+        } else {
+          G.aiHint = window.TT_AI.findBestMove(G.grid, G.active.piece, G.hold, G.queue.slice(0, 5));
+        }
       } else {
         // 通常(フリー/40LINE/Ultra)：軽量1手Dellacherie（LST偏りなし・Hold考慮なし＝金色固定・約2ms）
         G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece);
@@ -1583,9 +1589,10 @@
     // ★PC: 全消去到達時のモード別処理
     if (emptyAfter && G.mode === "pc_free") {
       pcFreeWins++;
-      G.pcRoute = null; G.pcRouteStep = 0; G.pcMsg = "🎉 PC！"; // 達成→ルートリセット＆祝福
+      G.pcMsg = "🎉 PC！"; // 祝福（バナーに一時表示）
       if (pcMsgTimer) clearTimeout(pcMsgTimer);
       pcMsgTimer = setTimeout(function () { G.pcMsg = null; render(); }, 1500);
+      clearSfx(spin, cl.cleared, true); G.active = null; newPcOpening(); return; // 次の開幕PCへ
     }
     if (emptyAfter && G.mode === "pc_challenge") { clearSfx(spin, cl.cleared, true); G.active = null; pcChallengeSolved(); return; }
     clearSfx(spin, cl.cleared, boardEmpty());
@@ -1700,6 +1707,7 @@
   function startLST() {
     if (G.chain) G.chain.on = false;
     G.mode = "lst"; resetCommon();
+    if (window.TT_LST) window.TT_LST.resetState(); // ★LSTルールガイドの状態リセット
     ensureQueue(6); spawnFromQueue();
     modeLabel.textContent = "LST積み";
     flashHint("金色ゴーストに従って積むとLST積みが続きます（水色=ホールド推奨）。", false);
@@ -1732,13 +1740,28 @@
       const b = $("btn-pc-sol"); if (b) b.addEventListener("click", pcShowSolution);
     } else { el.textContent = msg || ""; }
   }
-  // A-1 自由PC練習：フリーと同じプレイ＋PCルートを緑ゴーストで提示
+  // A-1 開幕PCモード：生成した開幕PCを出題し、全手順を緑ゴーストで1手ずつ誘導（重力なし）
+  //  ※実バッグ任せだと開幕PCはほぼ不能(実測 発見率~10%)のため、解けるPCを生成して提示する方式に。
+  function newPcOpening() {
+    if (!window.TT_PC) { G.pcRoute = null; return; }
+    var rows = (Math.random() < 0.6) ? 2 : 4;     // 2段(易) or 4段(難)
+    var gen = null, tries = 0;
+    while (!gen && tries < 6) { gen = window.TT_PC.generatePC(rows); tries++; }
+    if (!gen) gen = window.TT_PC.generatePC(2);
+    if (!gen) { G.pcRoute = null; return; }
+    G.grid = E.emptyGrid();
+    G.queue = gen.pieces.slice();                  // 解答に必要なミノを固定供給
+    G.pcRoute = gen.solution.map(function (s) { return { piece: s.piece, col: s.col, rot: s.rot }; });
+    G.pcRouteStep = 0;
+    G.bag = []; G.hold = null; G.canHold = true; G.history = []; G.active = null; G.over = false;
+    spawnFromQueue();
+  }
   function startPCFree() {
     if (G.chain) G.chain.on = false;
     G.mode = "pc_free"; resetCommon(); pcFreeAtt++;
-    ensureQueue(6); spawnFromQueue();
-    modeLabel.textContent = "PC練習";
-    flashHint("緑のゴーストに従うとPCを狙えます。←→/回転/Space/ホールド/Undo。", false);
+    newPcOpening();
+    modeLabel.textContent = "開幕PC";
+    flashHint("生成された開幕PCを緑ゴーストに従って解こう。ホールド/Undo可・R＝別の問題。", false);
     render();
   }
   // A-2 課題PC練習：PC課題を生成して出題（重力なし）
@@ -2548,8 +2571,8 @@
         pcBanner.style.display = "";
         let txt, grey = false;
         if (G.pcMsg) txt = G.pcMsg;
-        else if (G.pcRoute) txt = "🎯 PC手順: ステップ " + (G.pcRouteStep + 1) + " / " + G.pcRoute.length;
-        else { txt = "💭 PCルートを探しています..."; grey = true; }
+        else if (G.pcRoute) txt = "🎯 PC手順: " + (G.pcRouteStep + 1) + "手目 / 全" + G.pcRoute.length + "手（緑ゴーストに従ってください）";
+        else { txt = "💭 ミノが揃うまでお待ちください（ホールドも使えます）"; grey = true; }
         if (pcBanner.textContent !== txt) pcBanner.textContent = txt;
         pcBanner.classList.toggle("grey", grey);
       } else if (pcBanner.style.display !== "none") { pcBanner.style.display = "none"; }
@@ -2776,7 +2799,7 @@
       // ゲームパッド(Joy-Con等)
       pollGamepad(now);
       // gravity（自由のみ。テンプレ・最適化・タイムアタックは自動落下しない）
-      if (settings.gravity && G.active && !G.over && (G.mode === "free" || G.mode === "pc_free")) {
+      if (settings.gravity && G.active && !G.over && G.mode === "free") { // pc_freeは重力なし(PC前に積みすぎないため)
         if (now - G.lastGravity >= settings.gravityMs) {
           if (!tryMove(0, 1)) { hardDropNoExtend(); }
           G.lastGravity = now;
