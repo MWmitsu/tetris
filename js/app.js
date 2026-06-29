@@ -24,8 +24,8 @@
 
   const $ = function (id) { return document.getElementById(id); };
   const statLines = $("stat-lines"), statPieces = $("stat-pieces"), statPc = $("stat-pc");
-  const statTspin = $("stat-tspin"), statCycle = $("stat-cycle"), statAi = $("stat-ai"), statTslot = $("stat-tslot");
-  const statTsd = $("stat-tsd"), statKeep = $("stat-keep"), lstGuide = $("lst-guide");
+  const statTspin = $("stat-tspin"), statCycle = $("stat-cycle"), lstGuide = $("lst-guide");
+  const statLstPhase = $("stat-lst-phase"), statLstSlot = $("stat-lst-slot");
   const statPcRate = $("stat-pc-rate"), statEmptyCells = $("stat-empty-cells"), pcGuide = $("pc-guide"), pcBanner = $("pc-banner");
   const hintBox = $("hint-text"), modeLabel = $("mode-label"), taTime = $("ta-time");
   function setTa(t) { if (taTime) taTime.textContent = (t == null ? "" : t); }
@@ -40,10 +40,8 @@
     das: 130,          // ms（実機A/B比較でこの効きが好評。v43までの従来値に固定）
     arr: 25,           // ms（同上）
     sound: true,       // 効果音(SE)
-    aiHint: true,      // AIヒント(Dellacherie最善手の金色ゴースト＋AI評価)。localStorageで永続化
+    aiHint: true,      // AIヒント（LST積み/PC連パフェ専用。トグル廃止で常時有効）
   };
-  // AIヒント設定の復元（既定ON）
-  try { var _ai = localStorage.getItem("tt_ai_hint_v1"); if (_ai !== null) settings.aiHint = (_ai === "1"); } catch (e) {}
 
   // ===== 効果音(SE)：Web Audioで合成（音源ファイル不要） =====
   const SND = { ctx: null, master: null };
@@ -1311,8 +1309,9 @@
     return false;
   }
   function aiModeActive() {
-    if (G.mode === "free" || G.mode === "sprint" || G.mode === "ultra" || G.mode === "lst" || G.mode === "pc_free") return true;
-    return isLstContext(); // honeycup は LST積み選択時のみ（pc_challengeはヒント無しなので対象外）
+    // AIヒントは LST積み と PC連パフェ のみ（フリー/40LINE/Ultra からは完全削除）
+    if (G.mode === "lst" || G.mode === "pc_free") return true;
+    return isLstContext(); // honeycup は LST積み選択時のみ（pc_challengeはヒント無し）
   }
   // ★AI: AIヒント計算（スポーン/undo時のみ。結果を G.aiHint にキャッシュ）
   //   パターンA=現在のミノをそのまま置く / パターンB=ホールド(空ならネクスト1番目)と交換して置く
@@ -1342,12 +1341,12 @@
           G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); // ルート無し＝通常の金色
         }
       } else if (isLstContext()) {
-        // LST: まずルールベースガイド（lst_guide.js）→ 返せなければビームへフォールバック
+        // LST: まずルールベースガイド（状態機械）→ 返せなければ軽量Dellacherie(fast)へフォールバック
         var lstHint = window.TT_LST ? window.TT_LST.getLSTHint(G.grid, G.active.piece, G.hold) : null;
         if (lstHint && lstHint.cells && lstHint.cells.length === 4) {
           G.aiHint = { col: lstHint.col, rot: lstHint.rot, cells: lstHint.cells, useHold: false, mode: "lst" };
         } else {
-          G.aiHint = window.TT_AI.findBestMove(G.grid, G.active.piece, G.hold, G.queue.slice(0, 5));
+          G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece);
         }
       } else {
         // 通常(フリー/40LINE/Ultra)：軽量1手Dellacherie（LST偏りなし・Hold考慮なし＝金色固定・約2ms）
@@ -1469,6 +1468,7 @@
     const a = G.active;
     judgeAiMove(a);          // ★AI: 設置を最善手と比較して AI評価を更新（固定前の盤面で判定）
     pcAdvance(a);            // ★PC練習: 計画ルートの手順を進める/逸脱なら再計画
+    if (G.mode === "lst" && window.TT_LST) window.TT_LST.updateState(a.piece); // ★LST: 底/屋根フェーズ更新
     pushHistory();
     // T-spin 判定（固定前の盤面で。Tの隅セルはT自身が占めないため pre-lock で正しい）
     let spin = "none";
@@ -1588,11 +1588,11 @@
     if (G.mode === "lst" && spin === "full" && cl.cleared === 2) G.lstTSD++; // ★LST: TSD成立カウント
     // ★PC: 全消去到達時のモード別処理
     if (emptyAfter && G.mode === "pc_free") {
-      pcFreeWins++;
-      G.pcMsg = "🎉 PC！"; // 祝福（バナーに一時表示）
+      pcFreeWins++; G.pcCount = (G.pcCount || 0) + 1;
+      G.pcMsg = "🎉 " + G.pcCount + "連パフェ！"; // 祝福（バナーに一時表示）
       if (pcMsgTimer) clearTimeout(pcMsgTimer);
       pcMsgTimer = setTimeout(function () { G.pcMsg = null; render(); }, 1500);
-      clearSfx(spin, cl.cleared, true); G.active = null; newPcOpening(); return; // 次の開幕PCへ
+      clearSfx(spin, cl.cleared, true); G.active = null; newPcOpening(); return; // 次の連パフェへ
     }
     if (emptyAfter && G.mode === "pc_challenge") { clearSfx(spin, cl.cleared, true); G.active = null; pcChallengeSolved(); return; }
     clearSfx(spin, cl.cleared, boardEmpty());
@@ -1687,7 +1687,7 @@
     G.hcTarget = null; G.hcTargetKey = null; G.hcPrefillKey = null; G.hcDone = false; // はちみつ砲練習状態
     G.aiHint = null; G.aiEval = "-"; // ★AI: 開始/リセット直後はヒント無し・評価「-」
     G.lstTotal = 0; G.lstBest = 0; G.lstTSD = 0; // ★LST: 維持率(✅割合)・TSD数のセッション集計
-    G.pcRoute = null; G.pcRouteStep = 0; G.pcMsg = null; // ★PC練習: 計画ルート状態をクリア
+    G.pcRoute = null; G.pcRouteStep = 0; G.pcMsg = null; G.pcCount = 0; // ★PC練習: 計画ルート/連パフェ数をクリア
     if (typeof pcAnimTimer !== "undefined" && pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; } // ★PC: 解答アニメ停止（モード切替/リセットで暴走防止）
     if (typeof pcMsgTimer !== "undefined" && pcMsgTimer) { clearTimeout(pcMsgTimer); pcMsgTimer = null; }
     setTa(""); // ライブ表示クリア（フリー/テンプレ等では非表示。各モード開始時に再設定）
@@ -1743,25 +1743,21 @@
   // A-1 開幕PCモード：生成した開幕PCを出題し、全手順を緑ゴーストで1手ずつ誘導（重力なし）
   //  ※実バッグ任せだと開幕PCはほぼ不能(実測 発見率~10%)のため、解けるPCを生成して提示する方式に。
   function newPcOpening() {
-    if (!window.TT_PC) { G.pcRoute = null; return; }
-    var rows = (Math.random() < 0.6) ? 2 : 4;     // 2段(易) or 4段(難)
-    var gen = null, tries = 0;
-    while (!gen && tries < 6) { gen = window.TT_PC.generatePC(rows); tries++; }
-    if (!gen) gen = window.TT_PC.generatePC(2);
-    if (!gen) { G.pcRoute = null; return; }
+    var op = window.TT_PCO ? window.TT_PCO.nextOpening() : null;
+    if (!op) { G.pcRoute = null; return; }
     G.grid = E.emptyGrid();
-    G.queue = gen.pieces.slice();                  // 解答に必要なミノを固定供給
-    G.pcRoute = gen.solution.map(function (s) { return { piece: s.piece, col: s.col, rot: s.rot }; });
+    G.queue = op.pieces.slice();                   // 解答に必要なミノを出現順で固定供給
+    G.pcRoute = op.route;                           // 全手順をプリセット（配置順＝出現順）
     G.pcRouteStep = 0;
     G.bag = []; G.hold = null; G.canHold = true; G.history = []; G.active = null; G.over = false;
     spawnFromQueue();
   }
   function startPCFree() {
     if (G.chain) G.chain.on = false;
-    G.mode = "pc_free"; resetCommon(); pcFreeAtt++;
+    G.mode = "pc_free"; resetCommon(); pcFreeAtt++; G.pcCount = 0;
     newPcOpening();
-    modeLabel.textContent = "開幕PC";
-    flashHint("生成された開幕PCを緑ゴーストに従って解こう。ホールド/Undo可・R＝別の問題。", false);
+    modeLabel.textContent = "PC連パフェ";
+    flashHint("連続パーフェクトクリアに挑戦！緑ゴーストに従って解こう。R＝別の問題。", false);
     render();
   }
   // A-2 課題PC練習：PC課題を生成して出題（重力なし）
@@ -2545,25 +2541,13 @@
     if (statPc.textContent != G.pcs) statPc.textContent = G.pcs;
     if (statTspin && statTspin.textContent != G.tspins) statTspin.textContent = G.tspins;
     if (statCycle && statCycle.textContent != G.cycles) statCycle.textContent = G.cycles;
-    if (statAi) { const aiTxt = settings.aiHint ? G.aiEval : "-"; if (statAi.textContent != aiTxt) statAi.textContent = aiTxt; } // ★AI評価
-    const lstCtx = isLstContext(); // LSTモード or LST積みテンプレ
-    if (statTslot) { // ★Tスロット維持度（LST文脈のみ。毎描画で TT_AI.tSlotScore=detectLSTScore を算出）
-      let tsTxt = "-";
-      if (settings.aiHint && lstCtx && window.TT_AI) {
-        const ts = window.TT_AI.tSlotScore(G.grid);
-        tsTxt = ts >= 20 ? "✅ 維持中" : ts >= 10 ? "🟡 やや崩れ" : "❌ 崩れ";
-      }
-      if (statTslot.textContent != tsTxt) statTslot.textContent = tsTxt;
-    }
-    if (statTsd) { const v = (G.mode === "lst") ? String(G.lstTSD || 0) : "-"; if (statTsd.textContent != v) statTsd.textContent = v; } // ★TSD数（LSTモード）
-    if (statKeep) { // ★維持率（LSTモード・✅最善手の割合）
-      let kv = "-";
-      if (G.mode === "lst") kv = (G.lstTotal > 0) ? (Math.round(G.lstBest / G.lstTotal * 100) + "%") : "0%";
-      if (statKeep.textContent != kv) statKeep.textContent = kv;
-    }
+    // ★LST: フェーズ(底/屋根)・Tスロット維持（lstモードのみ。フリー等はAI表示を完全撤去済み）
+    const lstCtx = isLstContext();
+    if (statLstPhase) { const v = (G.mode === "lst" && window.TT_LST) ? (window.TT_LST.phase() === "roof" ? "屋根を置く" : "底を置く") : "-"; if (statLstPhase.textContent != v) statLstPhase.textContent = v; }
+    if (statLstSlot) { let v = "-"; if (lstCtx && window.TT_LST) v = window.TT_LST.findTSlot(G.grid) ? "✅ 維持中" : "❌ 崩れ"; if (statLstSlot.textContent != v) statLstSlot.textContent = v; }
     if (lstGuide) { const show = (G.mode === "lst"); if (lstGuide._on !== show) { lstGuide._on = show; lstGuide.style.display = show ? "" : "none"; } } // ★ガイドテキスト
     // ★PC: PC率/成功率・残りセル/成功数・ガイド・バナー
-    if (statPcRate) { let v = "-"; if (G.mode === "pc_free") v = Math.round(pcFreeWins / Math.max(1, pcFreeAtt) * 100) + "%"; else if (G.mode === "pc_challenge") v = Math.round(pcChWins / Math.max(1, pcChTotal) * 100) + "%"; if (statPcRate.textContent != v) statPcRate.textContent = v; }
+    if (statPcRate) { let v = "-"; if (G.mode === "pc_free") v = (G.pcCount || 0) + "連"; else if (G.mode === "pc_challenge") v = Math.round(pcChWins / Math.max(1, pcChTotal) * 100) + "%"; if (statPcRate.textContent != v) statPcRate.textContent = v; }
     if (statEmptyCells) { let v = "-"; if (G.mode === "pc_free") v = G.pcRoute ? ("残り" + (G.pcRoute.length - G.pcRouteStep) + "手") : "-"; else if (G.mode === "pc_challenge") v = "成功 " + pcChWins + "/" + pcChTotal; if (statEmptyCells.textContent != v) statEmptyCells.textContent = v; }
     if (pcGuide) { const show = (G.mode === "pc_free" || G.mode === "pc_challenge"); if (pcGuide._on !== show) { pcGuide._on = show; pcGuide.style.display = show ? "" : "none"; if (show) pcGuide.textContent = (G.mode === "pc_free") ? "緑のゴーストに従うとPCを狙えます" : "ミノを全て使って盤面を空にしよう"; } }
     if (pcBanner) { // ★PC練習バナー: ルート進捗 / 探索中 / 達成
@@ -3101,17 +3085,7 @@
     bindToggle("set-gravity", "gravity");
     bindToggle("set-repeat", "autoRepeat");
     bindToggle("set-sound", "sound");
-    // ★AIヒント トグル（localStorageで永続化。ONでスポーン時に最善手を計算、OFFで金色ゴースト/評価を非表示）
-    const aiToggle = $("set-ai");
-    if (aiToggle) {
-      aiToggle.checked = settings.aiHint;
-      aiToggle.addEventListener("change", function () {
-        settings.aiHint = aiToggle.checked;
-        try { localStorage.setItem("tt_ai_hint_v1", aiToggle.checked ? "1" : "0"); } catch (e) {}
-        if (settings.aiHint) computeAiHint(); else { G.aiHint = null; }
-        render();
-      });
-    }
+    // AIヒントは LST積み / PC連パフェ 専用（トグル廃止＝常時有効。フリー等では出ない）
     // 効果音: 最初のユーザー操作で AudioContext を起動（自動再生ポリシー対策）
     sndInit();
     const resumeAudio = function () { sndInit(); if (SND.ctx && SND.ctx.state === "suspended") { try { SND.ctx.resume(); } catch (e) {} } };

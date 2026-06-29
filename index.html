@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=65" />
+  <link rel="stylesheet" href="css/style.css?v=66" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v65</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v66</span></div>
   </header>
 
   <main class="layout">
@@ -32,10 +32,8 @@
         <div class="stat"><span>T-Spin</span><b id="stat-tspin">0</b></div>
         <div class="stat"><span>PC</span><b id="stat-pc">0</b></div>
         <div class="stat"><span>巡目</span><b id="stat-cycle">0</b></div>
-        <div class="stat"><span>AI評価</span><b id="stat-ai">-</b></div>
-        <div class="stat"><span>Tスロット</span><b id="stat-tslot">-</b></div>
-        <div class="stat"><span>TSD数</span><b id="stat-tsd">-</b></div>
-        <div class="stat"><span>維持率</span><b id="stat-keep">-</b></div>
+        <div class="stat"><span>フェーズ(LST)</span><b id="stat-lst-phase">-</b></div>
+        <div class="stat"><span>Tスロット(LST)</span><b id="stat-lst-slot">-</b></div>
         <div class="stat"><span>PC率/成功率</span><b id="stat-pc-rate">-</b></div>
         <div class="stat"><span>残り/成功数</span><b id="stat-empty-cells">-</b></div>
       </div>
@@ -132,8 +130,7 @@
         <label class="toggle"><input type="checkbox" id="set-gravity"> 重力(自動落下)</label>
         <label class="toggle"><input type="checkbox" id="set-repeat"> テンプレ自動反復</label>
         <label class="toggle"><input type="checkbox" id="set-sound"> 効果音(SE)</label>
-        <label class="toggle"><input type="checkbox" id="set-ai" checked> AIヒント(金=現在/水=ホールド交換ゴースト＋AI評価)</label>
-        <p class="note">横移動の効き（DAS 130ms／ARR 25ms）に固定。AIヒントは Dellacherie 最善手をフリー/40LINE/Ultra と「LST積み」テンプレで表示（金色=現在のミノ／水色=ホールド交換が最善）。</p>
+        <p class="note">横移動の効き（DAS 130ms／ARR 25ms）に固定。AIゴーストは「LST積み」「PC連パフェ」専用です（フリー/40LINE/Ultra には表示しません）。</p>
       </div>
 
       <div class="panel">
@@ -165,21 +162,22 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=65"></script>
-  <script src="js/lst_guide.js?v=65"></script>
-  <script src="js/ai.js?v=65"></script>
-  <script src="js/pc_solver.js?v=65"></script>
-  <script src="js/templates.js?v=65"></script>
-  <script src="js/catalog.js?v=65"></script>
-  <script src="js/catalog_data.js?v=65"></script>
-  <script src="js/fumen.js?v=65"></script>
-  <script src="js/honeycup.js?v=65"></script>
-  <script src="js/honeycup_patterns.js?v=65"></script>
-  <script src="js/templates_practice.js?v=65"></script>
-  <script src="js/templates_midgame.js?v=65"></script>
-  <script src="js/templates_lst.js?v=65"></script>
-  <script src="js/finesse.js?v=65"></script>
-  <script src="js/app.js?v=65"></script>
+  <script src="js/engine.js?v=66"></script>
+  <script src="js/lst_guide.js?v=66"></script>
+  <script src="js/ai.js?v=66"></script>
+  <script src="js/pc_solver.js?v=66"></script>
+  <script src="js/pc_opener.js?v=66"></script>
+  <script src="js/templates.js?v=66"></script>
+  <script src="js/catalog.js?v=66"></script>
+  <script src="js/catalog_data.js?v=66"></script>
+  <script src="js/fumen.js?v=66"></script>
+  <script src="js/honeycup.js?v=66"></script>
+  <script src="js/honeycup_patterns.js?v=66"></script>
+  <script src="js/templates_practice.js?v=66"></script>
+  <script src="js/templates_midgame.js?v=66"></script>
+  <script src="js/templates_lst.js?v=66"></script>
+  <script src="js/finesse.js?v=66"></script>
+  <script src="js/app.js?v=66"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>

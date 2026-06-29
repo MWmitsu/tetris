@@ -1,28 +1,21 @@
 /* ============================================================
- *  lst_guide.js — LST積みのルールベース・ガイド  window.TT_LST
+ *  lst_guide.js — LST積み ルールベース・ガイド（状態機械）  window.TT_LST
  * ------------------------------------------------------------
- *  盤面と現在ミノから「今どこに置くべきか」をルールで返す（heuristic）。
  *  参考: https://shiwehi.com/tetris/template/lststacking.php
- *  返せない時は null（app側で Dellacherie/ビームへフォールバック）。
+ *  col0=テトリス縦穴 / col1-3=Tスピン&L/S置き場 / col4-9=右側積み。
+ *  L/J(底)→S/Z(屋根)を交互に、Tはスロットへ回し入れ。返せない手は null（app側でDellacherie fast）。
  * ============================================================ */
 window.TT_LST = (function () {
   "use strict";
   var COLS = 10, ROWS = 20;
 
-  var LST_STATE = { lastBase: null, needRoof: false };
+  var LST_STATE = { phase: "base", lastBase: null, baseCol: null, roofHeight: 0 };
 
-  function toBinary(grid) {
-    return grid.map(function (row) { return row.map(function (cell) { return cell ? 1 : 0; }); });
-  }
+  function toBinary(grid) { return grid.map(function (row) { return row.map(function (c) { return c ? 1 : 0; }); }); }
   function getColHeight(b, col) { for (var r = 0; r < ROWS; r++) if (b[r][col] === 1) return ROWS - r; return 0; }
-  function avgRightHeight(b) { var s = 0; for (var c = 3; c < COLS; c++) s += getColHeight(b, c); return s / 7; }
-  function findTSlotRow(b) {
-    for (var r = 18; r >= 1; r--) {
-      if (b[r][2] === 0 && b[r - 1][2] === 0 && (b[r][1] === 1 || b[r][3] === 1)) return r;
-    }
-    return null;
-  }
-  // 配置が盤内に収まるか検証（engine使用）。OKなら絶対セル、NGなら null。
+  function avgRightHeight(b) { var s = 0; for (var c = 4; c < COLS; c++) s += getColHeight(b, c); return s / 6; }
+  function avgLeftHeight(b) { return (getColHeight(b, 0) + getColHeight(b, 1)) / 2; }
+  // 盤外に出ない配置か検証（engine使用）。OKで絶対セル、NGでnull。
   function validCells(grid, piece, rot, col) {
     var E = window.TT; if (!E || !E.PIECES[piece]) return null;
     var py = E.dropY(grid, piece, rot, col, -2);
@@ -31,56 +24,58 @@ window.TT_LST = (function () {
     return cells;
   }
 
-  function analyzeLSTState(b) {
-    return {
-      tSlotRow: findTSlotRow(b),
-      leftHeight: getColHeight(b, 0),
-      rightHeight: avgRightHeight(b),
-      needRoof: LST_STATE.needRoof,
-      lastBase: LST_STATE.lastBase,
-    };
+  // Tスロット検出：col2が2行連続で空＋片側オーバーハング。{row,col,rot}|null
+  function findTSlot(b) {
+    for (var r = 18; r >= 1; r--) {
+      if (b[r][2] === 0 && b[r - 1][2] === 0) {
+        if (b[r][1] === 1 && b[r][3] === 0) return { row: r, col: 1, rot: 1 }; // 左オーバーハング→右から回し入れ
+        if (b[r][3] === 1 && b[r][1] === 0) return { row: r, col: 2, rot: 3 }; // 右オーバーハング→左から回し入れ
+      }
+    }
+    return null;
   }
-
-  // ルール5: T はスロットへ回転入れ（col1付近・rot=1）。スロット無ければ null（任せる）。
-  function getTHint(b, state) {
-    if (state.tSlotRow === null) return null;
-    return { col: 1, rot: 1, source: "lst_rule" };
-  }
-  // ルール1/2/3: L/J を左側の底に。置いたら次は屋根。
-  function getLJHint(b, state, piece) {
-    LST_STATE.lastBase = piece; LST_STATE.needRoof = true;
-    return { col: 0, rot: piece === "L" ? 0 : 1, source: "lst_rule" };
-  }
-  // ルール2/3: S/Z を屋根に（ZはSの代替）。
-  function getSZHint(b, state, piece) {
-    LST_STATE.needRoof = false;
-    return { col: 1, rot: piece === "S" ? 0 : 2, source: "lst_rule" };
-  }
-  // ルール6: I は col2 に縦置き（テトリス穴維持）。I縦(rot1)は px=0 で col2 を占有。
-  function getIHint(b, state) { return { col: 0, rot: 1, source: "lst_rule" }; }
-  // ルール7: O は左側の底上げに。
-  function getOHint(b, state) { return { col: 0, rot: 0, source: "lst_rule" }; }
 
   function getLSTHint(grid, currentPiece, heldPiece) {
     var b = toBinary(grid);
-    var state = analyzeLSTState(b);
     var piece = currentPiece, hint = null;
-    if (piece === "T") hint = getTHint(b, state);
-    else if (piece === "L" || piece === "J") hint = getLJHint(b, state, piece);
-    else if (piece === "S" || piece === "Z") hint = getSZHint(b, state, piece);
-    else if (piece === "I") hint = getIHint(b, state);
-    else if (piece === "O") hint = getOHint(b, state);
+
+    if (piece === "T") {
+      var slot = findTSlot(b);
+      if (slot) hint = { col: slot.col, rot: slot.rot };
+    } else if (piece === "L") {
+      hint = { col: 1, rot: 0 };                                  // 左の底（縦置き）
+    } else if (piece === "J") {
+      hint = { col: 1, rot: 2 };                                  // LのJ代替
+    } else if (piece === "S") {
+      hint = (LST_STATE.phase === "roof") ? { col: 0, rot: 0 } : { col: 1, rot: 0 }; // 屋根 or 底
+    } else if (piece === "Z") {
+      hint = (LST_STATE.phase === "roof") ? { col: 0, rot: 2 } : { col: 1, rot: 2 }; // SのZ代替
+    } else if (piece === "I") {
+      if (getColHeight(b, 0) <= avgRightHeight(b) + 4) hint = { col: 0, rot: 1 }; // col0縦＝テトリス穴維持
+    } else if (piece === "O") {
+      if (avgLeftHeight(b) < avgRightHeight(b) - 3) hint = { col: 0, rot: 0 };    // 左が低い時だけ底上げ
+    }
     if (!hint) return null;
-    // 盤内に収まらない配置は無効化（appがビームへフォールバック）
     var cells = validCells(grid, piece, hint.rot, hint.col);
     if (!cells) return null;
     hint.cells = cells;
     return hint;
   }
 
+  // ロック後に状態を更新（底/屋根フェーズ）
+  function updateState(piece) {
+    if (piece === "L" || piece === "J") { LST_STATE.lastBase = piece; LST_STATE.phase = "roof"; }
+    else if (piece === "S" || piece === "Z") {
+      if (LST_STATE.phase === "roof") LST_STATE.phase = "base";
+      else { LST_STATE.lastBase = piece; LST_STATE.phase = "roof"; }
+    }
+  }
+
   return {
     getLSTHint: getLSTHint,
-    resetState: function () { LST_STATE.lastBase = null; LST_STATE.needRoof = false; },
-    _state: LST_STATE,
+    updateState: updateState,
+    findTSlot: function (grid) { return findTSlot(toBinary(grid)); },
+    phase: function () { return LST_STATE.phase; },
+    resetState: function () { LST_STATE.phase = "base"; LST_STATE.lastBase = null; LST_STATE.baseCol = null; LST_STATE.roofHeight = 0; },
   };
 })();
