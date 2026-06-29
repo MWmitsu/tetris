@@ -101,7 +101,8 @@ window.TT_AI = (function () {
 
   /* ---- 評価関数: Dellacherie 6指標 ＋ detectLSTScore ----
      placement 省略可。{landingHeight, erodedCells} を渡すと着地高さ・消去貢献度も加味（findBestMoveが渡す）。 */
-  function evaluateBoard(grid, placement) {
+  // Dellacherie 6指標のみ（LST加点なし）。findBestMoveFast / 通常モード採点に使用。
+  function evaluateDellacherie(grid, placement) {
     var b = asBin(grid);
     var lh = (placement && placement.landingHeight) || 0;
     var er = (placement && placement.erodedCells) || 0;
@@ -112,8 +113,11 @@ window.TT_AI = (function () {
     s += AI_WEIGHTS.colTrans * columnTransitions(b);
     s += AI_WEIGHTS.holes * holes(b);
     s += AI_WEIGHTS.wells * cumulativeWells(b);
-    s += detectLSTScore(b);
     return s;
+  }
+  // Dellacherie 6指標 ＋ detectLSTScore（LST特化評価）。
+  function evaluateBoard(grid, placement) {
+    return evaluateDellacherie(grid, placement) + detectLSTScore(asBin(grid));
   }
 
   function clearBinary(b) {
@@ -125,7 +129,7 @@ window.TT_AI = (function () {
 
   // 単一配置の評価。base(2値)に piece を (rot,px) で落とす。
   // 戻り値 { col, rot, score, cells, board(消去後2値) } / 無効なら null。
-  function placementResult(base, piece, rot, px) {
+  function placementResultWith(base, piece, rot, px, evalFn) {
     var E = window.TT; if (!E || !E.PIECES[piece]) return null;
     var d = dims(), ROWS = d.ROWS, COLS = d.COLS;
     var py = E.dropY(base, piece, rot, px, -2);
@@ -140,9 +144,11 @@ window.TT_AI = (function () {
     var eroded = cleared * pieceInCleared;
     var landingHeight = ROWS - maxR;
     var after = cleared ? clearBinary(b) : b;
-    var score = evaluateBoard(after, { landingHeight: landingHeight, erodedCells: eroded });
+    var score = evalFn(after, { landingHeight: landingHeight, erodedCells: eroded });
     return { col: px, rot: rot, score: score, cells: cells, board: after };
   }
+  // 既定はLST特化評価(evaluateBoard)。ビーム探索・evaluatePlacement で使用。
+  function placementResult(base, piece, rot, px) { return placementResultWith(base, piece, rot, px, evaluateBoard); }
 
   // ---- ミノ別ボーナス/ペナルティ（LST特化）----
   function minoBonus(piece, rot, cells, beforeBin, afterBin) {
@@ -217,26 +223,46 @@ window.TT_AI = (function () {
 
     if (beams.length && beams[0].first) {
       var top = beams[0];
-      return { col: top.first.col, rot: top.first.rot, score: top.score, cells: top.first.cells, useHold: top.first.useHold };
+      return { col: top.first.col, rot: top.first.rot, score: top.score, cells: top.first.cells, useHold: top.first.useHold, mode: "lst" };
     }
     // フォールバック: 1手greedy（hold無し）
     var best = null, base = toBinary(grid);
     for (var r2 = 0; r2 < 4; r2++) for (var p2 = -2; p2 < COLS; p2++) {
       var c2 = scoredCandidate(base, piece, r2, p2); if (!c2) continue;
-      if (!best || c2.total > best.score) best = { col: p2, rot: r2, score: c2.total, cells: c2.cells, useHold: false };
+      if (!best || c2.total > best.score) best = { col: p2, rot: r2, score: c2.total, cells: c2.cells, useHold: false, mode: "lst" };
     }
     return best;
   }
 
-  // プレイヤー配置の純Dellacherie評価（採点用・ボーナス無し・1手）。
+  /* ---- 軽量1手探索（通常モード: フリー/40LINE/Ultra）----
+     ビームサーチなし・LST特化加点なし・Hold考慮なし。純Dellacherie 6指標のみ。
+     戻り値 { col, rot, score, cells, useHold:false, mode:"fast" }。 */
+  function findBestMoveFast(grid, piece) {
+    var E = window.TT; if (!E || !E.PIECES[piece]) return null;
+    var d = dims(), COLS = d.COLS, base = toBinary(grid), best = null;
+    for (var rot = 0; rot < 4; rot++) for (var px = -2; px < COLS; px++) {
+      var res = placementResultWith(base, piece, rot, px, evaluateDellacherie);
+      if (res && (!best || res.score > best.score)) best = res;
+    }
+    if (!best) return null;
+    return { col: best.col, rot: best.rot, score: best.score, cells: best.cells, useHold: false, mode: "fast" };
+  }
+
+  // プレイヤー配置の評価（採点用・1手）。LST評価込み(evaluateBoard) と 純Dellacherie の2種。
   function evaluatePlacement(grid, piece, rot, px) {
-    return placementResult(toBinary(grid), piece, rot, px);
+    return placementResultWith(toBinary(grid), piece, rot, px, evaluateBoard);
+  }
+  function evaluatePlacementFast(grid, piece, rot, px) {
+    return placementResultWith(toBinary(grid), piece, rot, px, evaluateDellacherie);
   }
 
   return {
     findBestMove: findBestMove,
+    findBestMoveFast: findBestMoveFast,
     evaluatePlacement: evaluatePlacement,
+    evaluatePlacementFast: evaluatePlacementFast,
     evaluateBoard: evaluateBoard,
+    evaluateDellacherie: evaluateDellacherie,
     detectLSTScore: detectLSTScore,
     tSlotScore: detectLSTScore,   // 後方互換（旧名）
     thresholds: AI_THRESHOLD,

@@ -1308,8 +1308,15 @@
     if (!settings.aiHint || !window.TT_AI || !G.active || G.over) return;
     if (!aiModeActive()) return; // テンプレ練習(LST以外)/最適化は対象外＝既存挙動を変えない
     try {
-      // ビームサーチがHold/Next5を内部で考慮し、useHold付きで最善手を返す（新シグネチャ）
-      G.aiHint = window.TT_AI.findBestMove(G.grid, G.active.piece, G.hold, G.queue);
+      var t = (G.mode === "honeycup") ? tpCurTemplate() : null;
+      var isLST = !!(t && t.category === "LST積み");
+      if (isLST) {
+        // LST積み選択中：ビームサーチ＋LSTボーナス（Hold/Next5考慮・useHold付き・約50ms）
+        G.aiHint = window.TT_AI.findBestMove(G.grid, G.active.piece, G.hold, G.queue.slice(0, 5));
+      } else {
+        // 通常(フリー/40LINE/Ultra)：軽量1手Dellacherie（LST偏りなし・Hold考慮なし＝金色固定・約2ms）
+        G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece);
+      }
     } catch (e) { G.aiHint = null; }
   }
   // ★AI: プレイヤーの設置を最善手と比較して G.aiEval を4段階で更新（ロック時・aiHintがある時のみ）
@@ -1319,9 +1326,11 @@
     try {
       var playerKey = E.cellKey(E.absCells(a.piece, a.rot, a.px, a.py));
       if (playerKey === E.cellKey(G.aiHint.cells)) { G.aiEval = "✅ 最善手"; return; }
+      // 評価軸はヒント生成時と同じものを使う（fast=純Dellacherie / lst=LST評価込み）
+      var evalFn = (G.aiHint.mode === "lst") ? window.TT_AI.evaluatePlacement : window.TT_AI.evaluatePlacementFast;
       var aiPiece = G.aiHint.useHold ? (G.hold || (G.queue && G.queue[0])) : a.piece; // 最善手が使うミノ
-      var bestPe = aiPiece ? window.TT_AI.evaluatePlacement(G.grid, aiPiece, G.aiHint.rot, G.aiHint.col) : null;
-      var pe = window.TT_AI.evaluatePlacement(G.grid, a.piece, a.rot, a.px);
+      var bestPe = aiPiece ? evalFn(G.grid, aiPiece, G.aiHint.rot, G.aiHint.col) : null;
+      var pe = evalFn(G.grid, a.piece, a.rot, a.px);
       if (!bestPe || !pe) { G.aiEval = "⚠️ 改善余地あり"; return; }
       var ratio = Math.abs(bestPe.score - pe.score) / Math.max(1, Math.abs(bestPe.score));
       var TH = window.TT_AI.thresholds || { good: 0.15, ok: 0.40 };
