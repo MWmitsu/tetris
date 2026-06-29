@@ -135,7 +135,27 @@ window.TT_PC = (function () {
     return null;
   }
 
-  return { canAchievePC: canAchievePC, findPCHint: findPCHint, generatePC: generatePC,
+  /* 全ルート計画: 現在＋ネクスト(＋ホールド)で「出現順そのまま」置いてPCになる全手順を返す。
+     PCは総セルが10の倍数のミノ数でのみ成立 → 有効な手数を小さい順に試し、最初の解を返す。
+     戻り値 [{piece,col,rot}...] | null。プレイヤーが追える自然な順序（並べ替えはホールド1回ぶんのみ別系列で試行）。 */
+  function planPCRoute(grid, currentPiece, heldPiece, nextPieces) {
+    nextPieces = nextPieces || [];
+    var F = countFilled(toBinary(grid));
+    function tryPool(arr) {
+      for (var n = 1; n <= arr.length; n++) {
+        if ((F + 4 * n) % 10 !== 0) continue;       // 全消去には総セルが10の倍数
+        var res = canAchievePC(grid, arr.slice(0, n));
+        if (res.possible && res.solution && res.solution.length) return res.solution;
+      }
+      return null;
+    }
+    var r = tryPool([currentPiece].concat(nextPieces));
+    if (r) return r;
+    if (heldPiece) { r = tryPool([heldPiece, currentPiece].concat(nextPieces)); if (r) return r; }
+    return null;
+  }
+
+  return { canAchievePC: canAchievePC, findPCHint: findPCHint, generatePC: generatePC, planPCRoute: planPCRoute,
            _util: { toBinary: toBinary, countFilled: countFilled, isEmpty: isEmpty, dropPlace: dropPlace, clearBin: clearBin } };
 })();
 

@@ -127,6 +127,9 @@
     chain: null,           // はちみつ砲 通し練習(1→2→3) の状態 {on,stage,route}
     aiHint: null,          // AIヒント(Dellacherie最善手)キャッシュ {col,rot,score,cells}。スポーン/undo時のみ計算し描画で使い回す
     aiEval: "-",           // 直前の設置のAI評価表示（✅最善手/🟡次善手/❌ミス/-）
+    pcRoute: null,         // ★PC練習(pc_free): 計画済み全手順 [{piece,col,rot}...]
+    pcRouteStep: 0,        // ★PC練習: 現在の手順番号
+    pcMsg: null,           // ★PC練習: 一時メッセージ（「🎉 PC！」）
   };
 
   // ===== テンプレ・レジストリ & 保存（localStorage） =====
@@ -1320,10 +1323,23 @@
     if (!aiModeActive()) return; // テンプレ練習(LST以外)/最適化は対象外＝既存挙動を変えない
     try {
       if (G.mode === "pc_free") {
-        // PC練習：PCルートがあれば緑ゴースト、無ければ通常の金色(fast)
-        var pcHint = window.TT_PC ? window.TT_PC.findPCHint(G.grid, G.active.piece, G.hold, G.queue) : null;
-        if (pcHint) { pcHint.pc = true; pcHint.mode = "pc"; G.aiHint = pcHint; }
-        else { G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); }
+        // 最初から全手順を計画 → 1手ずつ緑ゴーストで誘導
+        if (!G.pcRoute && window.TT_PC) {
+          var route = window.TT_PC.planPCRoute(G.grid, G.active.piece, G.hold, G.queue.slice(0, 9));
+          if (route) { G.pcRoute = route; G.pcRouteStep = 0; }
+        }
+        if (G.pcRoute && G.pcRouteStep < G.pcRoute.length) {
+          var step = G.pcRoute[G.pcRouteStep];
+          var mkHint = function (uh) {
+            var gy = E.dropY(G.grid, step.piece, step.rot, step.col, -2);
+            return { col: step.col, rot: step.rot, cells: E.absCells(step.piece, step.rot, step.col, gy), useHold: uh, pc: true, mode: "pc" };
+          };
+          if (step.piece === G.active.piece) G.aiHint = mkHint(false);
+          else if (step.piece === G.hold) G.aiHint = mkHint(true);
+          else { G.pcRoute = null; G.pcRouteStep = 0; G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); } // ミノ不一致→次スポーンで再計画
+        } else {
+          G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); // ルート無し＝通常の金色
+        }
       } else if (isLstContext()) {
         // LSTモード / LST積みテンプレ：ビームサーチ＋LSTボーナス（Hold/Next5考慮・useHold付き・約50ms）
         G.aiHint = window.TT_AI.findBestMove(G.grid, G.active.piece, G.hold, G.queue.slice(0, 5));
@@ -1446,6 +1462,7 @@
     if (G.mode === "honeycup") { handleHoneycupLock(); return; }
     const a = G.active;
     judgeAiMove(a);          // ★AI: 設置を最善手と比較して AI評価を更新（固定前の盤面で判定）
+    pcAdvance(a);            // ★PC練習: 計画ルートの手順を進める/逸脱なら再計画
     pushHistory();
     // T-spin 判定（固定前の盤面で。Tの隅セルはT自身が占めないため pre-lock で正しい）
     let spin = "none";
@@ -1564,7 +1581,12 @@
     if (G.mode === "ultra") ultraAddScore(spin, cl.cleared, cl.cleared > 0 && boardEmpty()); // スコア加算
     if (G.mode === "lst" && spin === "full" && cl.cleared === 2) G.lstTSD++; // ★LST: TSD成立カウント
     // ★PC: 全消去到達時のモード別処理
-    if (emptyAfter && G.mode === "pc_free") pcFreeWins++;
+    if (emptyAfter && G.mode === "pc_free") {
+      pcFreeWins++;
+      G.pcRoute = null; G.pcRouteStep = 0; G.pcMsg = "🎉 PC！"; // 達成→ルートリセット＆祝福
+      if (pcMsgTimer) clearTimeout(pcMsgTimer);
+      pcMsgTimer = setTimeout(function () { G.pcMsg = null; render(); }, 1500);
+    }
     if (emptyAfter && G.mode === "pc_challenge") { clearSfx(spin, cl.cleared, true); G.active = null; pcChallengeSolved(); return; }
     clearSfx(spin, cl.cleared, boardEmpty());
     G.active = null;
@@ -1658,7 +1680,9 @@
     G.hcTarget = null; G.hcTargetKey = null; G.hcPrefillKey = null; G.hcDone = false; // はちみつ砲練習状態
     G.aiHint = null; G.aiEval = "-"; // ★AI: 開始/リセット直後はヒント無し・評価「-」
     G.lstTotal = 0; G.lstBest = 0; G.lstTSD = 0; // ★LST: 維持率(✅割合)・TSD数のセッション集計
+    G.pcRoute = null; G.pcRouteStep = 0; G.pcMsg = null; // ★PC練習: 計画ルート状態をクリア
     if (typeof pcAnimTimer !== "undefined" && pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; } // ★PC: 解答アニメ停止（モード切替/リセットで暴走防止）
+    if (typeof pcMsgTimer !== "undefined" && pcMsgTimer) { clearTimeout(pcMsgTimer); pcMsgTimer = null; }
     setTa(""); // ライブ表示クリア（フリー/テンプレ等では非表示。各モード開始時に再設定）
     clearHeld();
     // リマップ取得モードが残っていると入力が吸われ続けるので解除
@@ -1686,7 +1710,21 @@
   let pcFreeWins = 0, pcFreeAtt = 0;   // 自由PC: 達成数 / (再)開始数
   let pcChWins = 0, pcChTotal = 0;     // 課題PC: 成功 / 挑戦
   let pcCh = null;                     // 課題状態 {solution:[{piece,col,rot}], rows, board0}
-  let pcAnimTimer = null;
+  let pcAnimTimer = null, pcMsgTimer = null;
+  // ★PC練習: ロックした手が計画ルート通りか判定し、合えば手順を進め、外れたら再計画させる
+  function pcAdvance(a) {
+    if (G.mode !== "pc_free" || !G.pcRoute || !a) return;
+    var step = G.pcRoute[G.pcRouteStep];
+    var onRoute = false;
+    if (step && step.piece === a.piece) {
+      var gy = E.dropY(G.grid, step.piece, step.rot, step.col, -2);
+      var rk = E.cellKey(E.absCells(step.piece, step.rot, step.col, gy));
+      var pk = E.cellKey(E.absCells(a.piece, a.rot, a.px, a.py));
+      if (rk === pk) onRoute = true;
+    }
+    if (onRoute) G.pcRouteStep++;
+    else { G.pcRoute = null; G.pcRouteStep = 0; } // ルート逸脱→次スポーンで再計画
+  }
   function setPcResult(msg, fail) {
     const el = $("pc-challenge-result"); if (!el) return;
     if (fail) {
@@ -2503,9 +2541,19 @@
     if (lstGuide) { const show = (G.mode === "lst"); if (lstGuide._on !== show) { lstGuide._on = show; lstGuide.style.display = show ? "" : "none"; } } // ★ガイドテキスト
     // ★PC: PC率/成功率・残りセル/成功数・ガイド・バナー
     if (statPcRate) { let v = "-"; if (G.mode === "pc_free") v = Math.round(pcFreeWins / Math.max(1, pcFreeAtt) * 100) + "%"; else if (G.mode === "pc_challenge") v = Math.round(pcChWins / Math.max(1, pcChTotal) * 100) + "%"; if (statPcRate.textContent != v) statPcRate.textContent = v; }
-    if (statEmptyCells) { let v = "-"; if (G.mode === "pc_free") v = "残り" + emptyCellsInStack() + "セル"; else if (G.mode === "pc_challenge") v = "成功 " + pcChWins + "/" + pcChTotal; if (statEmptyCells.textContent != v) statEmptyCells.textContent = v; }
+    if (statEmptyCells) { let v = "-"; if (G.mode === "pc_free") v = G.pcRoute ? ("残り" + (G.pcRoute.length - G.pcRouteStep) + "手") : "-"; else if (G.mode === "pc_challenge") v = "成功 " + pcChWins + "/" + pcChTotal; if (statEmptyCells.textContent != v) statEmptyCells.textContent = v; }
     if (pcGuide) { const show = (G.mode === "pc_free" || G.mode === "pc_challenge"); if (pcGuide._on !== show) { pcGuide._on = show; pcGuide.style.display = show ? "" : "none"; if (show) pcGuide.textContent = (G.mode === "pc_free") ? "緑のゴーストに従うとPCを狙えます" : "ミノを全て使って盤面を空にしよう"; } }
-    if (pcBanner) { const show = (G.mode === "pc_free" && settings.aiHint && G.aiHint && G.aiHint.pc); if (pcBanner._on !== show) { pcBanner._on = show; pcBanner.style.display = show ? "" : "none"; } }
+    if (pcBanner) { // ★PC練習バナー: ルート進捗 / 探索中 / 達成
+      if (G.mode === "pc_free") {
+        pcBanner.style.display = "";
+        let txt, grey = false;
+        if (G.pcMsg) txt = G.pcMsg;
+        else if (G.pcRoute) txt = "🎯 PC手順: ステップ " + (G.pcRouteStep + 1) + " / " + G.pcRoute.length;
+        else { txt = "💭 PCルートを探しています..."; grey = true; }
+        if (pcBanner.textContent !== txt) pcBanner.textContent = txt;
+        pcBanner.classList.toggle("grey", grey);
+      } else if (pcBanner.style.display !== "none") { pcBanner.style.display = "none"; }
+    }
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";
@@ -2600,9 +2648,9 @@
     // ★AIゴースト（最善手・別レイヤー）。金色=現在のミノを置く / 水色=ホールド交換して置く。既存ゴーストとは独立。
     if (settings.aiHint && G.aiHint && G.aiHint.cells && G.active && !G.over) {
       bctx.save();
-      const _g = G.aiHint; // 緑=PCルート / 水色=ホールド推奨 / 金色=現在ミノ最善
-      bctx.fillStyle = _g.pc ? "rgba(0,255,100,0.5)" : _g.useHold ? "rgba(0,200,255,0.4)" : "rgba(255,215,0,0.4)";
-      bctx.strokeStyle = _g.pc ? "rgba(0,255,100,0.95)" : _g.useHold ? "rgba(0,200,255,0.9)" : "rgba(255,215,0,0.85)";
+      const _g = G.aiHint; // 緑=PCルート / 青緑=PCでホールドしてから / 水色=LSTホールド推奨 / 金色=現在ミノ最善
+      bctx.fillStyle = _g.pc ? (_g.useHold ? "rgba(0,220,180,0.5)" : "rgba(0,255,100,0.5)") : _g.useHold ? "rgba(0,200,255,0.4)" : "rgba(255,215,0,0.4)";
+      bctx.strokeStyle = _g.pc ? (_g.useHold ? "rgba(0,220,180,0.95)" : "rgba(0,255,100,0.95)") : _g.useHold ? "rgba(0,200,255,0.9)" : "rgba(255,215,0,0.85)";
       bctx.lineWidth = 1.5;
       const ac = G.aiHint.cells;
       for (let i = 0; i < ac.length; i++) {
