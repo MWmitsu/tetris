@@ -10,12 +10,12 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=68" />
+  <link rel="stylesheet" href="css/style.css?v=69" />
 </head>
 <body>
   <header class="topbar">
     <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v68</span></div>
+    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v69</span></div>
   </header>
 
   <main class="layout">
@@ -46,10 +46,22 @@
         <button id="btn-lst" class="ctrl-btn">LST積み</button>
         <button id="btn-pc-free" class="ctrl-btn">PC練習</button>
         <button id="btn-pc-challenge" class="ctrl-btn">PC課題</button>
+        <button id="btn-demo-lst" class="ctrl-btn">LST デモ</button>
+        <button id="btn-demo-pc" class="ctrl-btn">PC デモ</button>
         <button id="btn-finesse" class="ctrl-btn">最適化</button>
         <button id="btn-finesse-20s" class="ctrl-btn">最適化 20秒</button>
         <button id="btn-reset" class="ctrl-btn primary">リセット (R)</button>
         <button id="btn-undo" class="ctrl-btn">一手戻す ↩ (U)</button>
+      </div>
+      <div class="panel" id="demo-panel" style="display:none">
+        <div class="panel-title">AIデモ操作</div>
+        <div id="demo-status" class="demo-status">⏸ 停止中</div>
+        <div id="demo-progress" class="note">手順 0 / 0</div>
+        <div class="set-row"><span>速度</span><input type="range" id="demo-speed" min="1" max="5" value="3"></div>
+        <p class="note">1(低速)〜5(高速)。再生中に変えると即反映。</p>
+        <button id="demo-play-pause" class="ctrl-btn primary">▶ スタート</button>
+        <button id="demo-step" class="ctrl-btn">1手進む</button>
+        <button id="demo-reset" class="ctrl-btn">リセット</button>
       </div>
     </aside>
 
@@ -162,21 +174,21 @@
   </footer>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=68"></script>
-  <script src="js/ai.js?v=68"></script>
-  <script src="js/pc_solver.js?v=68"></script>
-  <script src="js/pc_opener.js?v=68"></script>
-  <script src="js/templates.js?v=68"></script>
-  <script src="js/catalog.js?v=68"></script>
-  <script src="js/catalog_data.js?v=68"></script>
-  <script src="js/fumen.js?v=68"></script>
-  <script src="js/honeycup.js?v=68"></script>
-  <script src="js/honeycup_patterns.js?v=68"></script>
-  <script src="js/templates_practice.js?v=68"></script>
-  <script src="js/templates_midgame.js?v=68"></script>
-  <script src="js/templates_lst.js?v=68"></script>
-  <script src="js/finesse.js?v=68"></script>
-  <script src="js/app.js?v=68"></script>
+  <script src="js/engine.js?v=69"></script>
+  <script src="js/ai.js?v=69"></script>
+  <script src="js/pc_solver.js?v=69"></script>
+  <script src="js/pc_opener.js?v=69"></script>
+  <script src="js/templates.js?v=69"></script>
+  <script src="js/catalog.js?v=69"></script>
+  <script src="js/catalog_data.js?v=69"></script>
+  <script src="js/fumen.js?v=69"></script>
+  <script src="js/honeycup.js?v=69"></script>
+  <script src="js/honeycup_patterns.js?v=69"></script>
+  <script src="js/templates_practice.js?v=69"></script>
+  <script src="js/templates_midgame.js?v=69"></script>
+  <script src="js/templates_lst.js?v=69"></script>
+  <script src="js/finesse.js?v=69"></script>
+  <script src="js/app.js?v=69"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>

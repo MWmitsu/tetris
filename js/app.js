@@ -26,6 +26,7 @@
   const statLines = $("stat-lines"), statPieces = $("stat-pieces"), statPc = $("stat-pc");
   const statTspin = $("stat-tspin"), statCycle = $("stat-cycle"), lstGuide = $("lst-guide");
   const statLstCycle = $("stat-lst-cycle"), statLstForm = $("stat-lst-form");
+  const demoPanel = $("demo-panel"), demoStatus = $("demo-status"), demoProgress = $("demo-progress"), demoPlayPause = $("demo-play-pause");
   const statPcRate = $("stat-pc-rate"), statEmptyCells = $("stat-empty-cells"), pcGuide = $("pc-guide"), pcBanner = $("pc-banner");
   const hintBox = $("hint-text"), modeLabel = $("mode-label"), taTime = $("ta-time");
   function setTa(t) { if (taTime) taTime.textContent = (t == null ? "" : t); }
@@ -131,6 +132,7 @@
     lstForms: null,        // ★LST積み(シーケンシャル): 形配列
     lstFormIdx: 0,         // ★LST積み: 現在の形インデックス
     lstCycleCount: 0,      // ★LST積み: 完成した形の累計
+    demoState: null,       // ★AIデモ: {mode,playing,stepQueue,currentStep,totalSteps,timer,formIdx,pcCount,advancing}
   };
 
   // ===== テンプレ・レジストリ & 保存（localStorage） =====
@@ -1665,6 +1667,7 @@
     G.lstTotal = 0; G.lstBest = 0; G.lstTSD = 0; // ★LST: 維持率(✅割合)・TSD数のセッション集計
     G.pcRoute = null; G.pcRouteStep = 0; G.pcMsg = null; G.pcCount = 0; // ★PC練習: 計画ルート/連パフェ数をクリア
     G.lstForms = null; G.lstFormIdx = 0; G.lstCycleCount = 0; // ★LST積み(シーケンシャル)状態
+    if (G.demoState && G.demoState.timer) { clearInterval(G.demoState.timer); } G.demoState = null; // ★AIデモ: タイマー停止＆状態クリア
     if (typeof pcAnimTimer !== "undefined" && pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; } // ★PC: 解答アニメ停止（モード切替/リセットで暴走防止）
     if (typeof pcMsgTimer !== "undefined" && pcMsgTimer) { clearTimeout(pcMsgTimer); pcMsgTimer = null; }
     if (typeof lstAdvTimer !== "undefined" && lstAdvTimer) { clearTimeout(lstAdvTimer); lstAdvTimer = null; } // ★LST: 次形への自動進行タイマー停止
@@ -1744,6 +1747,124 @@
     if (cl.cleared > 0) clearSfx(spin, cl.cleared, boardEmpty());
     spawnFromQueue(); render(); // 失敗しても継続
   }
+
+  // ===== AIデモ（LSTデモ / PC連パフェデモ：自動再生） =====
+  function demoSpeedMs() {
+    const el = $("demo-speed"); const v = el ? parseInt(el.value, 10) : 3;
+    return ({ 1: 1000, 2: 600, 3: 300, 4: 150, 5: 50 })[v] || 300;
+  }
+  // 形の grid から「各ミノ(色)をどのセルに置くか」を抽出（LST形は各ミノ1個=4セル）。下の行から順に。
+  function calcLSTDemoSteps(form) {
+    const pc = hcSetupCells(form);
+    const groups = {};
+    for (let i = 0; i < pc.target.length; i++) { const t = pc.target[i]; (groups[t[2]] = groups[t[2]] || []).push([t[0], t[1]]); }
+    const steps = [];
+    for (const ch in groups) steps.push({ piece: ch, cells: groups[ch] });
+    steps.sort(function (a, b) { return Math.max.apply(null, b.cells.map(function (c) { return c[0]; })) - Math.max.apply(null, a.cells.map(function (c) { return c[0]; })); });
+    return steps;
+  }
+  function setupDemoLSTForm(idx) {
+    const forms = G.lstForms; if (!forms || !forms.length) return;
+    const n = forms.length, i = ((idx % n) + n) % n;
+    const form = forms[i];
+    G.grid = E.emptyGrid();
+    const pc = hcSetupCells(form);
+    for (let k = 0; k < pc.prefill.length; k++) { const p = pc.prefill[k]; G.grid[p[0]][p[1]] = HC_GRAY; }
+    G.hcTarget = pc.target; G.hcDone = false;
+    G.hcTargetKey = {}; for (let k = 0; k < pc.target.length; k++) G.hcTargetKey[pc.target[k][0] + "," + pc.target[k][1]] = pc.target[k][2];
+    G.hcPrefillKey = {}; for (let k = 0; k < pc.prefill.length; k++) G.hcPrefillKey[pc.prefill[k][0] + "," + pc.prefill[k][1]] = 1;
+    G.active = null;
+    G.demoState.formIdx = i;
+    G.demoState.stepQueue = calcLSTDemoSteps(form);
+    G.demoState.currentStep = 0;
+    G.demoState.totalSteps = G.demoState.stepQueue.length;
+    G.demoState.advancing = false;
+    render();
+  }
+  function startDemoLST() {
+    if (G.chain) G.chain.on = false;
+    G.mode = "demo_lst"; resetCommon();
+    const forms = getLSTForms();
+    if (!forms || !forms.length) { flashHint("LST形データが見つかりません。", true); render(); return; }
+    G.lstForms = forms;
+    G.demoState = { mode: "lst", playing: false, stepQueue: [], currentStep: 0, totalSteps: 0, timer: null, formIdx: 0, pcCount: 0, advancing: false };
+    setupDemoLSTForm(0);
+    modeLabel.textContent = "LST デモ";
+    flashHint("AIがLST形を自動で組みます。▶スタート / 1手進む / 速度スライダー。", false);
+    render();
+  }
+  function startDemoPC() {
+    if (G.chain) G.chain.on = false;
+    G.mode = "demo_pc"; resetCommon();
+    G.demoState = { mode: "pc", playing: false, stepQueue: [], currentStep: 0, totalSteps: 0, timer: null, formIdx: 0, pcCount: 0, advancing: false };
+    const op = window.TT_PCO ? window.TT_PCO.nextOpening() : null;
+    if (!op) { flashHint("PCルート生成に失敗しました。リセットで再試行。", true); render(); return; }
+    G.grid = E.emptyGrid();
+    G.demoState.stepQueue = op.route; G.demoState.currentStep = 0; G.demoState.totalSteps = op.route.length;
+    G.queue = op.pieces.slice(); G.hold = null; G.canHold = true; G.active = null;
+    modeLabel.textContent = "PC デモ";
+    flashHint("AIがPC連パフェを自動で組みます。▶スタート / 1手進む / 速度スライダー。", false);
+    render();
+  }
+  function demoPCComplete() {
+    const ds = G.demoState; if (!ds || ds.advancing) return;
+    ds.advancing = true;
+    ds.pcCount++;
+    flashHint("🎉 " + ds.pcCount + "連パフェ！ 次のPCへ…", false);
+    showCompletion("🎉 " + ds.pcCount + "連パフェ！");
+    render();
+    setTimeout(function () {
+      if (G.mode !== "demo_pc") return;
+      const op = window.TT_PCO ? window.TT_PCO.nextOpening() : null;
+      if (!op) { ds.advancing = false; return; }
+      G.grid = E.emptyGrid();
+      ds.stepQueue = op.route; ds.currentStep = 0; ds.totalSteps = op.route.length;
+      G.queue = op.pieces.slice(); ds.advancing = false;
+      render();
+    }, 800);
+  }
+  function demoExecuteStep() {
+    const ds = G.demoState; if (!ds) return;
+    const step = ds.stepQueue[ds.currentStep];
+    if (G.mode === "demo_lst") {
+      if (!step) { // 形完成 → 次の形へ
+        if (ds.advancing) return;
+        ds.advancing = true; sfx("perfect"); showCompletion("✓ 完成！");
+        const nextIdx = (ds.formIdx + 1) % G.lstForms.length;
+        flashHint("✓ 完成！ 次のLST形へ（形 " + (nextIdx + 1) + " / " + G.lstForms.length + "）", false);
+        render();
+        setTimeout(function () { if (G.mode === "demo_lst") setupDemoLSTForm(nextIdx); }, Math.max(400, demoSpeedMs()));
+        return;
+      }
+      const color = (E.PIECES[step.piece] && E.PIECES[step.piece].color) || HC_GRAY;
+      for (let i = 0; i < step.cells.length; i++) { const r = step.cells[i][0], c = step.cells[i][1]; if (r >= 0 && r < ROWS && c >= 0 && c < COLS) G.grid[r][c] = color; }
+      G.pieces++; if (step.piece === "T") G.tspins++;
+      ds.currentStep++; render();
+    } else if (G.mode === "demo_pc") {
+      if (!step) { demoPCComplete(); return; }
+      const gy = E.dropY(G.grid, step.piece, step.rot, step.col, -2);
+      E.lock(G.grid, step.piece, step.rot, step.col, gy);
+      const cl = E.clearLines(G.grid); G.grid = cl.grid;
+      if (cl.cleared > 0) G.lines += cl.cleared;
+      G.pieces++; ds.currentStep++; render();
+      if (ds.currentStep >= ds.totalSteps && boardEmpty()) demoPCComplete();
+    }
+  }
+  function demoPlay() {
+    const ds = G.demoState; if (!ds || ds.playing) return;
+    ds.playing = true; render();
+    ds.timer = setInterval(function () { if (G.demoState && G.demoState.playing) demoExecuteStep(); }, demoSpeedMs());
+  }
+  function demoPause() {
+    const ds = G.demoState; if (!ds) return;
+    ds.playing = false;
+    if (ds.timer) { clearInterval(ds.timer); ds.timer = null; }
+    render();
+  }
+  function demoStep() { const ds = G.demoState; if (!ds || ds.playing) return; demoExecuteStep(); }
+  function demoReset() { demoPause(); if (G.mode === "demo_pc") startDemoPC(); else startDemoLST(); }
+  function demoTogglePlay() { const ds = G.demoState; if (!ds) return; if (ds.playing) demoPause(); else demoPlay(); }
+  function demoSpeedChanged() { const ds = G.demoState; if (ds && ds.playing) { demoPause(); demoPlay(); } } // 再生中なら新速度で再開
 
   // ===== PC（パーフェクトクリア）練習 A-1自由 / A-2課題 =====
   let pcFreeWins = 0, pcFreeAtt = 0;   // 自由PC: 達成数 / (再)開始数
@@ -2592,6 +2713,22 @@
         pcBanner.classList.toggle("grey", grey);
       } else if (pcBanner.style.display !== "none") { pcBanner.style.display = "none"; }
     }
+    // ★AIデモ: 操作パネルの表示・状態・進捗
+    if (demoPanel) {
+      const inDemo = (G.mode === "demo_lst" || G.mode === "demo_pc");
+      if (demoPanel._on !== inDemo) { demoPanel._on = inDemo; demoPanel.style.display = inDemo ? "" : "none"; }
+      if (inDemo && G.demoState) {
+        const ds = G.demoState;
+        const done = ds.currentStep >= ds.totalSteps && !ds.advancing;
+        const stTxt = ds.playing ? "▶ 再生中" : (done ? "✅ 完了" : "⏸ 停止中");
+        if (demoStatus && demoStatus.textContent !== stTxt) demoStatus.textContent = stTxt;
+        const prog = (G.mode === "demo_lst")
+          ? ("手順 " + ds.currentStep + " / " + ds.totalSteps + "　｜　形 " + (ds.formIdx + 1) + " / " + (G.lstForms ? G.lstForms.length : 0))
+          : ("手順 " + ds.currentStep + " / " + ds.totalSteps + "　｜　" + ds.pcCount + " 連パフェ");
+        if (demoProgress && demoProgress.textContent !== prog) demoProgress.textContent = prog;
+        if (demoPlayPause) { const t = ds.playing ? "⏸ 停止" : "▶ スタート"; if (demoPlayPause.textContent !== t) demoPlayPause.textContent = t; }
+      }
+    }
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";
@@ -2696,6 +2833,21 @@
         if (r >= 0) { bctx.fillRect(c * CELL + 3, r * CELL + 3, CELL - 6, CELL - 6); bctx.strokeRect(c * CELL + 3.5, r * CELL + 3.5, CELL - 7, CELL - 7); }
       }
       bctx.restore();
+    }
+
+    // ★AIデモゴースト（次に置く場所を金色で表示）
+    if ((G.mode === "demo_lst" || G.mode === "demo_pc") && G.demoState && G.demoState.stepQueue && !G.over) {
+      const s = G.demoState.stepQueue[G.demoState.currentStep];
+      if (s) {
+        let dcells = s.cells;
+        if (!dcells && s.piece) { const gy = E.dropY(G.grid, s.piece, s.rot, s.col, -2); dcells = E.absCells(s.piece, s.rot, s.col, gy); }
+        if (dcells) {
+          bctx.save();
+          bctx.fillStyle = "rgba(255,215,0,0.45)"; bctx.strokeStyle = "rgba(255,215,0,0.9)"; bctx.lineWidth = 1.5;
+          for (let i = 0; i < dcells.length; i++) { const r = dcells[i][0], c = dcells[i][1]; if (r >= 0) { bctx.fillRect(c * CELL + 3, r * CELL + 3, CELL - 6, CELL - 6); bctx.strokeRect(c * CELL + 3.5, r * CELL + 3.5, CELL - 7, CELL - 7); } }
+          bctx.restore();
+        }
+      }
     }
 
     // ゴースト & アクティブ
@@ -3072,6 +3224,8 @@
     else if (G.mode === "lst") startLST();
     else if (G.mode === "pc_free") startPCFree();
     else if (G.mode === "pc_challenge") startPCChallenge();
+    else if (G.mode === "demo_lst") startDemoLST();
+    else if (G.mode === "demo_pc") startDemoPC();
     else startFree();
   }
 
@@ -3085,6 +3239,12 @@
     if ($("btn-lst")) $("btn-lst").addEventListener("click", startLST);
     if ($("btn-pc-free")) $("btn-pc-free").addEventListener("click", startPCFree);
     if ($("btn-pc-challenge")) $("btn-pc-challenge").addEventListener("click", startPCChallenge);
+    if ($("btn-demo-lst")) $("btn-demo-lst").addEventListener("click", startDemoLST);
+    if ($("btn-demo-pc")) $("btn-demo-pc").addEventListener("click", startDemoPC);
+    if ($("demo-play-pause")) $("demo-play-pause").addEventListener("click", demoTogglePlay);
+    if ($("demo-step")) $("demo-step").addEventListener("click", demoStep);
+    if ($("demo-reset")) $("demo-reset").addEventListener("click", demoReset);
+    if ($("demo-speed")) $("demo-speed").addEventListener("input", demoSpeedChanged);
     if ($("btn-honeycup-2")) $("btn-honeycup-2").addEventListener("click", startHoneycup);
     if ($("btn-hc-prev")) $("btn-hc-prev").addEventListener("click", function () { honeycupNext(-1); });
     if ($("btn-hc-next")) $("btn-hc-next").addEventListener("click", function () { honeycupNext(1); });
