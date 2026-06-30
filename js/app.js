@@ -2640,6 +2640,9 @@
       return; // 取得中は通常操作を行わない
     }
 
+    // メニュー画面ならゲーム操作でなくメニュー操作（移動/決定）を行う
+    if (appView === "menu") { pollMenu(gp, now); return; }
+
     // 横移動（キーボードと同じ DAS/ARR）
     const lf = padOn(gp, PAD_MAP.left), rt = padOn(gp, PAD_MAP.right);
     let dir = 0;
@@ -2666,7 +2669,12 @@
     padEdge(gp, "rot180", PAD_MAP.rot180, function () { tryRotate180(); });
     padEdge(gp, "hold", PAD_MAP.hold, holdPiece);
     padEdge(gp, "undo", PAD_MAP.undo, undo);
-    padEdge(gp, "reset", PAD_MAP.reset, doReset);
+    // ＋ボタン: タップ=リセット / 長押し(700ms)=メニューへ戻る
+    const plusOn = padOn(gp, PAD_MAP.reset);
+    if (plusOn && !pad._plusPrev) { pad._plusStart = now; pad._plusConsumed = false; }
+    if (plusOn && !pad._plusConsumed && now - pad._plusStart >= 700) { pad._plusConsumed = true; showMenu(); }
+    if (!plusOn && pad._plusPrev && !pad._plusConsumed) doReset();
+    pad._plusPrev = plusOn;
   }
   function updateGamepadStatus() {
     const el = $("pad-status"); if (!el) return;
@@ -2755,6 +2763,8 @@
       flashHint(e.key === "Escape" ? "キー設定を取り消しました。" : ("「" + labelOf(done) + "」のキーを設定しました。"), false);
       return;
     }
+    // メニュー画面：矢印=移動 / Enter・Space=決定（設定の入力欄にフォーカス中は通常動作を優先）
+    if (appView === "menu" && handleMenuKey(e)) return;
     const act = actionForKey(e.key);
     // 横/ソフトはDAS/ARRで処理。その他は1押下=1回にするためブラウザのキーリピートは無視。
     if (e.repeat) { if (act === "left" || act === "right" || act === "soft") e.preventDefault(); return; }
@@ -2781,21 +2791,97 @@
   }
 
   // ===== メニュー画面 ⇄ ゲーム画面の切替 =====
+  let appView = "menu"; // "menu" | "game"（ゲームパッド/キーボードの入力先を切替）
   function showGame(mode) {
+    appView = "game";
     const m = $("view-menu"), g = $("view-game");
     if (m) m.style.display = "none";
     if (g) g.style.display = "";
     // テンプレ練習のときだけ右側のテンプレ一覧パネルを表示
     const tp = $("tp-panel");
     if (tp) tp.style.display = (mode === "template") ? "" : "none";
+    pad.prev = {}; menuNav.dir = ""; // 画面切替でパッドのエッジ状態をリセット（押しっぱなし誤爆防止）
   }
   function showMenu() {
+    appView = "menu";
     // 進行中のタイマー類を止めて待機状態へ
     if (G.chain) G.chain.on = false;
     G.over = true; G.active = null;
     const m = $("view-menu"), g = $("view-game");
     if (g) g.style.display = "none";
     if (m) m.style.display = "";
+    pad.prev = {}; menuNav.dir = "";
+    setMenuFocus(menuIdx); // フォーカスを再表示
+  }
+
+  // ===== メニューのフォーカス移動・決定（ゲームパッド/キーボード共通） =====
+  const MENU_NAV_DAS = 360, MENU_NAV_ARR = 150; // 押しっぱなし時のリピート（DAS/ARR風）
+  const menuNav = { dir: "", start: 0, last: 0, fired: false };
+  let menuIdx = 0;
+  function menuFocusables() {
+    const list = Array.prototype.slice.call(document.querySelectorAll("#view-menu .menu-btn"));
+    const sm = document.querySelector("#view-menu .menu-settings > summary");
+    if (sm) list.push(sm); // 末尾に「設定・操作」(開閉)も加える
+    return list;
+  }
+  function menuColumns(items) {
+    if (!items || items.length < 2) return 1;
+    const top0 = items[0].offsetTop; let c = 0;
+    for (let i = 0; i < items.length; i++) { if (items[i].offsetTop === top0) c++; else break; }
+    return Math.max(1, c);
+  }
+  function setMenuFocus(idx) {
+    const items = menuFocusables(); if (!items.length) return;
+    menuIdx = Math.max(0, Math.min(items.length - 1, idx));
+    for (let i = 0; i < items.length; i++) items[i].classList.toggle("menu-focus", i === menuIdx);
+    const el = items[menuIdx];
+    if (el && el.scrollIntoView) { try { el.scrollIntoView({ block: "nearest" }); } catch (e) {} }
+  }
+  function menuMove(step) {
+    const items = menuFocusables(); if (!items.length) return;
+    setMenuFocus(menuIdx + step); sfx("move");
+  }
+  function menuActivate() {
+    const items = menuFocusables(); const el = items[menuIdx]; if (!el) return;
+    el.click(); // モードボタン=モード開始 / summary=設定の開閉
+  }
+  // 決定後にゲームへ移った直後、押しっぱなしのパッドボタンが即発火しないよう、現在状態を「既読」にする
+  function syncPadPrev(gp) {
+    ["hard", "cw", "ccw", "rot180", "hold", "undo", "reset"].forEach(function (k) { pad.prev[k] = padOn(gp, PAD_MAP[k]); });
+  }
+  // メニュー画面のゲームパッド操作：十字/スティックで移動・A(右回転ボタン)で決定
+  function pollMenu(gp, now) {
+    // 方向（hard=↑ soft=↓ left/right は PAD_MAP を流用）
+    const up = padOn(gp, PAD_MAP.hard), down = padOn(gp, PAD_MAP.soft);
+    const left = padOn(gp, PAD_MAP.left), right = padOn(gp, PAD_MAP.right);
+    let dir = "";
+    if (up && !down) dir = "up"; else if (down && !up) dir = "down";
+    else if (left && !right) dir = "left"; else if (right && !left) dir = "right";
+    if (dir) {
+      const items = menuFocusables(); const cols = menuColumns(items);
+      const step = { up: -cols, down: cols, left: -1, right: 1 }[dir];
+      if (dir !== menuNav.dir) { menuNav.dir = dir; menuNav.start = now; menuNav.last = now; menuNav.fired = false; menuMove(step); }
+      else if (!menuNav.fired && now - menuNav.start >= MENU_NAV_DAS) { menuNav.fired = true; menuMove(step); menuNav.last = now; }
+      else if (menuNav.fired && now - menuNav.last >= MENU_NAV_ARR) { menuMove(step); menuNav.last = now; }
+    } else { menuNav.dir = ""; }
+    // 決定 = A（PAD_MAP.cw=右回転ボタン）。押した瞬間に1回だけ。
+    const confirm = padOn(gp, PAD_MAP.cw);
+    if (confirm && !pad.prev.menu_confirm) {
+      sfx("rotate"); menuActivate(); syncPadPrev(gp); // 決定後はゲーム入力へ移行（押しっぱなし誤爆を抑止）
+    }
+    pad.prev.menu_confirm = confirm;
+  }
+  // メニュー画面のキーボード操作。処理したら true。設定の入力欄(チェック/選択)操作中は介入しない。
+  function handleMenuKey(e) {
+    const ae = document.activeElement;
+    if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return false;
+    const items = menuFocusables(); const cols = menuColumns(items);
+    let step = 0;
+    if (e.key === "ArrowUp") step = -cols; else if (e.key === "ArrowDown") step = cols;
+    else if (e.key === "ArrowLeft") step = -1; else if (e.key === "ArrowRight") step = 1;
+    if (step) { e.preventDefault(); menuMove(step); return true; }
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); menuActivate(); return true; }
+    return false;
   }
 
   // ===== 画面UI構築 =====
@@ -3039,7 +3125,9 @@
 
   // ===== 起動 =====
   buildUI();
-  startFree();
+  startFree();        // ゲーム状態を初期化（メニュー背後で待機。モード選択で再スタート）
+  appView = "menu";   // 起動直後はメニュー画面（startFree後に明示）
+  setMenuFocus(0);    // メニューの初期フォーカス
   requestAnimationFrame(inputLoop);
 
   // デバッグ用に公開
