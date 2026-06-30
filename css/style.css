@@ -30,7 +30,47 @@ html { overflow-y: scroll; }
 .mode-tag { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; margin-left: 12px; font-variant-numeric: tabular-nums; }
 .mode-tag span { color: var(--accent); font-weight: 800; }
 
-.layout {
+/* ===== メニュー画面 ===== */
+.view-menu { max-width: 760px; margin: 0 auto; padding: 28px 18px 40px; }
+.menu-head { display: flex; align-items: baseline; justify-content: center; gap: 12px; margin-bottom: 4px; }
+.menu-head h1 { font-size: 28px; margin: 0; font-weight: 900; letter-spacing: .04em; text-shadow: 0 0 14px var(--glow); }
+.ver { font-size: 12px; color: var(--muted); opacity: .8; }
+.menu-sub { text-align: center; color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+.menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.menu-btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: 18px 20px; cursor: pointer; text-align: left;
+  background: linear-gradient(180deg, var(--panel2), #131b46);
+  border: 1px solid var(--line); border-radius: 14px; color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06); transition: border-color .12s, box-shadow .12s, transform .08s;
+}
+.menu-btn:hover { border-color: var(--accent); box-shadow: 0 0 16px var(--glow); }
+.menu-btn:active { transform: translateY(1px); }
+.menu-btn .mb-title { font-size: 19px; font-weight: 800; color: var(--accent); letter-spacing: .03em; }
+.menu-btn .mb-desc { font-size: 12px; color: var(--muted); }
+.menu-settings { margin-top: 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.menu-settings > summary { cursor: pointer; padding: 12px 16px; font-size: 14px; font-weight: 800; color: var(--accent); list-style: none; user-select: none; }
+.menu-settings > summary::-webkit-details-marker { display: none; }
+.menu-settings > summary::before { content: "▸ "; }
+.menu-settings[open] > summary::before { content: "▾ "; }
+.menu-settings-body { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; padding: 4px 16px 16px; }
+.ms-col { min-width: 0; }
+.menu-help { padding: 18px 8px 0; }
+
+/* ===== ゲーム画面 ===== */
+.game-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; border-bottom: 2px solid var(--accent);
+  background: linear-gradient(90deg, #2a1a6e, #16235f 50%, #102a6e);
+  box-shadow: 0 2px 14px rgba(0,0,0,.45);
+}
+.game-bar .btn-menu, .game-bar #btn-menu { flex: 0 0 auto; width: auto; }
+.game-bar .mode-tag { margin-left: 0; flex: 1 1 auto; }
+.game-bar-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.game-bar-actions .ctrl-btn { width: auto; }
+.game-bar #btn-menu { width: auto; }
+
+.layout, .game-main {
   display: grid;
   grid-template-columns: 200px minmax(0, auto) 240px;
   gap: 16px;
@@ -220,10 +260,13 @@ html { overflow-y: scroll; }
 
 /* ===== スマホ・タブレット ===== */
 @media (max-width: 820px) {
-  .layout {
+  .layout, .game-main {
     grid-template-columns: 1fr;
     gap: 12px;
   }
+  .menu-grid, .menu-settings-body { grid-template-columns: 1fr; }
+  .view-menu { padding: 20px 14px 32px; }
+  .game-bar { flex-wrap: wrap; }
   .side { flex-direction: row; flex-wrap: wrap; }
   .side .panel { flex: 1 1 140px; }
   .tp-list { grid-template-columns: 1fr 1fr 1fr; gap: 4px; }

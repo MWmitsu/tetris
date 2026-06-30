@@ -24,10 +24,7 @@
 
   const $ = function (id) { return document.getElementById(id); };
   const statLines = $("stat-lines"), statPieces = $("stat-pieces"), statPc = $("stat-pc");
-  const statTspin = $("stat-tspin"), statCycle = $("stat-cycle"), lstGuide = $("lst-guide");
-  const statLstCycle = $("stat-lst-cycle"), statLstForm = $("stat-lst-form");
-  const demoPanel = $("demo-panel"), demoStatus = $("demo-status"), demoProgress = $("demo-progress"), demoPlayPause = $("demo-play-pause");
-  const statPcRate = $("stat-pc-rate"), statEmptyCells = $("stat-empty-cells"), pcGuide = $("pc-guide"), pcBanner = $("pc-banner");
+  const statTspin = $("stat-tspin"), statCycle = $("stat-cycle");
   const hintBox = $("hint-text"), modeLabel = $("mode-label"), taTime = $("ta-time");
   function setTa(t) { if (taTime) taTime.textContent = (t == null ? "" : t); }
 
@@ -1189,8 +1186,6 @@
       if (tplType() === "fsteps") { setFStep(s.stepIndex); return; }
       computeTarget();
     }
-    G.aiEval = "-";          // ★AI: 取り消した手の評価は無効化
-    computeAiHint();         // ★AI: 復元したミノ/盤面で最善手を再計算
     render();
   }
 
@@ -1276,11 +1271,7 @@
   // ===== スポーン =====
   function spawnFromQueue() {
     let piece;
-    if (G.mode === "pc_challenge" || G.mode === "pc_free") {
-      // 固定ミノ列のみ供給（bag補充しない）。尽きたら: 課題=未達終了 / 開幕PC=次の問題を生成。
-      if (!G.queue.length) { if (G.mode === "pc_challenge") pcChallengeExhausted(); else newPcOpening(); return; }
-      piece = G.queue.shift();
-    } else if (G.mode === "template" && tplType() === "steps") {
+    if (G.mode === "template" && tplType() === "steps") {
       if (G.stepIndex >= G.template.steps.length) { onTemplateComplete(); return; }
       piece = G.template.steps[G.stepIndex].piece;
     } else if (G.mode === "template" && G.template && G.template.queue) {
@@ -1302,56 +1293,7 @@
     G.canHold = true;
     G.lastRotation = false; // 出現直後はまだ回転していない
     if (G.mode === "template") computeTarget();
-    computeAiHint();        // ★AI: 新ミノ出現時に最善手を1回だけ計算してキャッシュ（描画で使い回す）
     render();
-  }
-
-  // ★AI: AIヒント（緑ゴースト）は PC連パフェ(pc_free) 専用。LST積みは目標形オーバーレイで誘導（aiHint不使用）。
-  function computeAiHint() {
-    G.aiHint = null;
-    if (!settings.aiHint || !window.TT_AI || !G.active || G.over) return;
-    if (G.mode !== "pc_free") return; // pc_free 以外は緑ゴースト無し
-    try {
-      // 最初から全手順を計画 → 1手ずつ緑ゴーストで誘導
-      if (!G.pcRoute && window.TT_PC) {
-        var route = window.TT_PC.planPCRoute(G.grid, G.active.piece, G.hold, G.queue.slice(0, 9));
-        if (route) { G.pcRoute = route; G.pcRouteStep = 0; }
-      }
-      if (G.pcRoute && G.pcRouteStep < G.pcRoute.length) {
-        var step = G.pcRoute[G.pcRouteStep];
-        var mkHint = function (uh) {
-          var gy = E.dropY(G.grid, step.piece, step.rot, step.col, -2);
-          return { col: step.col, rot: step.rot, cells: E.absCells(step.piece, step.rot, step.col, gy), useHold: uh, pc: true, mode: "pc" };
-        };
-        if (step.piece === G.active.piece) G.aiHint = mkHint(false);
-        else if (step.piece === G.hold) G.aiHint = mkHint(true);
-        else if (!G.hold && G.queue[0] === step.piece) G.aiHint = mkHint(true); // ホールド空→次を引いて置く
-        else { G.pcRoute = null; G.pcRouteStep = 0; G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); } // ミノ不一致→次スポーンで再計画
-      } else {
-        G.aiHint = window.TT_AI.findBestMoveFast(G.grid, G.active.piece); // ルート無し＝通常の金色
-      }
-    } catch (e) { G.aiHint = null; }
-  }
-  // ★AI: プレイヤーの設置を最善手と比較して G.aiEval を4段階で更新（ロック時・aiHintがある時のみ）
-  //   採点は純Dellacherie(1手)で AI最初の1手 と プレイヤー手 を同尺度比較（ビームのlookaheadスコアと混ぜない）。
-  function judgeAiMove(a) {
-    if (!settings.aiHint || !G.aiHint || !window.TT_AI || !a) return;
-    try {
-      G.lstTotal++; // ★LST: 維持率の母数（AIヒントがある手＝毎手）
-      var playerKey = E.cellKey(E.absCells(a.piece, a.rot, a.px, a.py));
-      if (playerKey === E.cellKey(G.aiHint.cells)) { G.lstBest++; G.aiEval = "✅ 最善手"; return; }
-      // 評価軸はヒント生成時と同じものを使う（fast=純Dellacherie / lst=LST評価込み）
-      var evalFn = (G.aiHint.mode === "lst") ? window.TT_AI.evaluatePlacement : window.TT_AI.evaluatePlacementFast;
-      var aiPiece = G.aiHint.useHold ? (G.hold || (G.queue && G.queue[0])) : a.piece; // 最善手が使うミノ
-      var bestPe = aiPiece ? evalFn(G.grid, aiPiece, G.aiHint.rot, G.aiHint.col) : null;
-      var pe = evalFn(G.grid, a.piece, a.rot, a.px);
-      if (!bestPe || !pe) { G.aiEval = "⚠️ 改善余地あり"; return; }
-      var ratio = Math.abs(bestPe.score - pe.score) / Math.max(1, Math.abs(bestPe.score));
-      var TH = window.TT_AI.thresholds || { good: 0.15, ok: 0.40 };
-      if (ratio <= TH.good) G.aiEval = "🟡 次善手";
-      else if (ratio <= TH.ok) G.aiEval = "⚠️ 改善余地あり";
-      else G.aiEval = "❌ ミス";
-    } catch (e) { /* 判定失敗時は据え置き */ }
   }
 
   // ===== 操作 =====
@@ -1443,10 +1385,7 @@
   function lockPiece() {
     if (G.mode === "finesse") { handleFinesseLock(); return; }
     if (G.mode === "honeycup") { handleHoneycupLock(); return; }
-    if (G.mode === "lst") { handleLSTLock(); return; } // ★LST: シーケンシャルテンプレ（完成で次形へ）
     const a = G.active;
-    judgeAiMove(a);          // ★AI: 設置を最善手と比較して AI評価を更新（固定前の盤面で判定）
-    pcAdvance(a);            // ★PC練習: 計画ルートの手順を進める/逸脱なら再計画
     pushHistory();
     // T-spin 判定（固定前の盤面で。Tの隅セルはT自身が占めないため pre-lock で正しい）
     let spin = "none";
@@ -1563,16 +1502,6 @@
       if (emptyAfter) { G.pcs++; msg = (msg ? msg + " " : "") + "パーフェクトクリア！🎉"; }
     }
     if (G.mode === "ultra") ultraAddScore(spin, cl.cleared, cl.cleared > 0 && boardEmpty()); // スコア加算
-    if (G.mode === "lst" && spin === "full" && cl.cleared === 2) G.lstTSD++; // ★LST: TSD成立カウント
-    // ★PC: 全消去到達時のモード別処理
-    if (emptyAfter && G.mode === "pc_free") {
-      pcFreeWins++; G.pcCount = (G.pcCount || 0) + 1;
-      G.pcMsg = "🎉 " + G.pcCount + "連パフェ！"; // 祝福（バナーに一時表示）
-      if (pcMsgTimer) clearTimeout(pcMsgTimer);
-      pcMsgTimer = setTimeout(function () { G.pcMsg = null; render(); }, 1500);
-      clearSfx(spin, cl.cleared, true); G.active = null; newPcOpening(); return; // 次の連パフェへ
-    }
-    if (emptyAfter && G.mode === "pc_challenge") { clearSfx(spin, cl.cleared, true); G.active = null; pcChallengeSolved(); return; }
     clearSfx(spin, cl.cleared, boardEmpty());
     G.active = null;
     // 次へ
@@ -1663,14 +1592,6 @@
     G.finesseTimed = false; G.timerStart = null; G.timedDone = false; G.sprintGoal = SPRINT_GOAL; // タイムアタック状態
     G.score = 0; G.combo = -1; G.b2b = false; // Ultraスコア状態（REN/Back-to-Back）
     G.hcTarget = null; G.hcTargetKey = null; G.hcPrefillKey = null; G.hcDone = false; // はちみつ砲練習状態
-    G.aiHint = null; G.aiEval = "-"; // ★AI: 開始/リセット直後はヒント無し・評価「-」
-    G.lstTotal = 0; G.lstBest = 0; G.lstTSD = 0; // ★LST: 維持率(✅割合)・TSD数のセッション集計
-    G.pcRoute = null; G.pcRouteStep = 0; G.pcMsg = null; G.pcCount = 0; // ★PC練習: 計画ルート/連パフェ数をクリア
-    G.lstForms = null; G.lstFormIdx = 0; G.lstCycleCount = 0; // ★LST積み(シーケンシャル)状態
-    if (G.demoState && G.demoState.timer) { clearInterval(G.demoState.timer); } G.demoState = null; // ★AIデモ: タイマー停止＆状態クリア
-    if (typeof pcAnimTimer !== "undefined" && pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; } // ★PC: 解答アニメ停止（モード切替/リセットで暴走防止）
-    if (typeof pcMsgTimer !== "undefined" && pcMsgTimer) { clearTimeout(pcMsgTimer); pcMsgTimer = null; }
-    if (typeof lstAdvTimer !== "undefined" && lstAdvTimer) { clearTimeout(lstAdvTimer); lstAdvTimer = null; } // ★LST: 次形への自動進行タイマー停止
     setTa(""); // ライブ表示クリア（フリー/テンプレ等では非表示。各モード開始時に再設定）
     clearHeld();
     // リマップ取得モードが残っていると入力が吸われ続けるので解除
@@ -1683,304 +1604,6 @@
     modeLabel.textContent = "フリー";
     flashHint("自由に積めます。←→移動 / ↑(X)右回転 Z左回転 / Space=ハードドロップ / Shift(C)=ホールド / ↩Undo", false);
     render();
-  }
-  // ★LST積みモード（シーケンシャルテンプレ方式）：lst_stackingの形を順に組み、完成で次へ自動進行・永久ループ。
-  let lstAdvTimer = null;
-  function getLSTForms() {
-    if (!window.TT_TEMPLATES || !window.TT_TEMPLATES.templates) return null;
-    const t = window.TT_TEMPLATES.templates.find(function (x) { return x.id === "lst_stacking"; });
-    return t ? t.forms : null;
-  }
-  function setupLSTForm(idx) {
-    const forms = G.lstForms; if (!forms || !forms.length) return;
-    const n = forms.length, i = ((idx % n) + n) % n;
-    const form = forms[i];
-    G.lstFormIdx = i;
-    G.grid = E.emptyGrid();
-    const pc = hcSetupCells(form);
-    for (let k = 0; k < pc.prefill.length; k++) { const p = pc.prefill[k]; G.grid[p[0]][p[1]] = HC_GRAY; }
-    G.hcTarget = pc.target;
-    G.hcTargetKey = {}; for (let k = 0; k < pc.target.length; k++) G.hcTargetKey[pc.target[k][0] + "," + pc.target[k][1]] = pc.target[k][2];
-    G.hcPrefillKey = {}; for (let k = 0; k < pc.prefill.length; k++) G.hcPrefillKey[pc.prefill[k][0] + "," + pc.prefill[k][1]] = 1;
-    G.hcDone = false;
-    G.bag = []; G.queue = []; G.hold = null; G.canHold = true; G.history = [];
-    ensureQueue(6); spawnFromQueue();
-    render();
-  }
-  function startLST() {
-    if (G.chain) G.chain.on = false;
-    G.mode = "lst"; resetCommon();
-    const forms = getLSTForms();
-    if (!forms || !forms.length) { flashHint("LST形データが見つかりません。", true); render(); return; }
-    G.lstForms = forms; G.lstFormIdx = 0; G.lstCycleCount = 0;
-    setupLSTForm(0);
-    modeLabel.textContent = "LST積み";
-    flashHint("薄い色の目標形を組もう！完成すると次の形へ進みます（永久ループ）。R=やり直し。", false);
-    render();
-  }
-  function checkLSTFormComplete() {
-    const cnt = honeycupCount();
-    return (!G.hcDone) && G.hcTarget && G.hcTarget.length > 0 && cnt.filledTarget >= G.hcTarget.length;
-  }
-  function handleLSTLock() {
-    const a = G.active;
-    pushHistory();
-    let spin = "none";
-    if (a.piece === "T" && G.lastRotation) spin = E.tSpinType(G.grid, a, G.lastKick); // T-Spin数カウント用
-    E.lock(G.grid, a.piece, a.rot, a.px, a.py);
-    G.pieces++;
-    if (spin !== "none") G.tspins++;
-    const done = checkLSTFormComplete(); // 消去前に完成判定
-    const cl = E.clearLines(G.grid); G.grid = cl.grid;
-    if (cl.cleared > 0) { G.lines += cl.cleared; if (boardEmpty()) G.pcs++; }
-    G.active = null;
-    if (done) {
-      G.hcDone = true; sfx("perfect"); showCompletion("✓ 完成！");
-      G.lstCycleCount = (G.lstCycleCount || 0) + 1;
-      const nextIdx = (G.lstFormIdx + 1) % G.lstForms.length;
-      flashHint("✓ 完成！ 次のLST形へ…（累計 " + G.lstCycleCount + " 形クリア）", false);
-      render();
-      if (lstAdvTimer) clearTimeout(lstAdvTimer);
-      lstAdvTimer = setTimeout(function () { if (G.mode === "lst") setupLSTForm(nextIdx); }, 500);
-      return;
-    }
-    if (cl.cleared > 0) clearSfx(spin, cl.cleared, boardEmpty());
-    spawnFromQueue(); render(); // 失敗しても継続
-  }
-
-  // ===== AIデモ（LSTデモ / PC連パフェデモ：自動再生） =====
-  function demoSpeedMs() {
-    const el = $("demo-speed"); const v = el ? parseInt(el.value, 10) : 3;
-    return ({ 1: 1000, 2: 600, 3: 300, 4: 150, 5: 50 })[v] || 300;
-  }
-  // 形の grid から「各ミノ(色)をどのセルに置くか」を抽出（LST形は各ミノ1個=4セル）。下の行から順に。
-  function calcLSTDemoSteps(form) {
-    const pc = hcSetupCells(form);
-    const groups = {};
-    for (let i = 0; i < pc.target.length; i++) { const t = pc.target[i]; (groups[t[2]] = groups[t[2]] || []).push([t[0], t[1]]); }
-    const steps = [];
-    for (const ch in groups) steps.push({ piece: ch, cells: groups[ch] });
-    steps.sort(function (a, b) { return Math.max.apply(null, b.cells.map(function (c) { return c[0]; })) - Math.max.apply(null, a.cells.map(function (c) { return c[0]; })); });
-    return steps;
-  }
-  function setupDemoLSTForm(idx) {
-    const forms = G.lstForms; if (!forms || !forms.length) return;
-    const n = forms.length, i = ((idx % n) + n) % n;
-    const form = forms[i];
-    G.grid = E.emptyGrid();
-    const pc = hcSetupCells(form);
-    for (let k = 0; k < pc.prefill.length; k++) { const p = pc.prefill[k]; G.grid[p[0]][p[1]] = HC_GRAY; }
-    G.hcTarget = pc.target; G.hcDone = false;
-    G.hcTargetKey = {}; for (let k = 0; k < pc.target.length; k++) G.hcTargetKey[pc.target[k][0] + "," + pc.target[k][1]] = pc.target[k][2];
-    G.hcPrefillKey = {}; for (let k = 0; k < pc.prefill.length; k++) G.hcPrefillKey[pc.prefill[k][0] + "," + pc.prefill[k][1]] = 1;
-    G.active = null;
-    G.demoState.formIdx = i;
-    G.demoState.stepQueue = calcLSTDemoSteps(form);
-    G.demoState.currentStep = 0;
-    G.demoState.totalSteps = G.demoState.stepQueue.length;
-    G.demoState.advancing = false;
-    render();
-  }
-  function startDemoLST() {
-    if (G.chain) G.chain.on = false;
-    G.mode = "demo_lst"; resetCommon();
-    const forms = getLSTForms();
-    if (!forms || !forms.length) { flashHint("LST形データが見つかりません。", true); render(); return; }
-    G.lstForms = forms;
-    G.demoState = { mode: "lst", playing: false, stepQueue: [], currentStep: 0, totalSteps: 0, timer: null, formIdx: 0, pcCount: 0, advancing: false };
-    setupDemoLSTForm(0);
-    modeLabel.textContent = "LST デモ";
-    flashHint("AIがLST形を自動で組みます。▶スタート / 1手進む / 速度スライダー。", false);
-    render();
-  }
-  function startDemoPC() {
-    if (G.chain) G.chain.on = false;
-    G.mode = "demo_pc"; resetCommon();
-    G.demoState = { mode: "pc", playing: false, stepQueue: [], currentStep: 0, totalSteps: 0, timer: null, formIdx: 0, pcCount: 0, advancing: false };
-    const op = window.TT_PCO ? window.TT_PCO.nextOpening() : null;
-    if (!op) { flashHint("PCルート生成に失敗しました。リセットで再試行。", true); render(); return; }
-    G.grid = E.emptyGrid();
-    G.demoState.stepQueue = op.route; G.demoState.currentStep = 0; G.demoState.totalSteps = op.route.length;
-    G.queue = op.pieces.slice(); G.hold = null; G.canHold = true; G.active = null;
-    modeLabel.textContent = "PC デモ";
-    flashHint("AIがPC連パフェを自動で組みます。▶スタート / 1手進む / 速度スライダー。", false);
-    render();
-  }
-  function demoPCComplete() {
-    const ds = G.demoState; if (!ds || ds.advancing) return;
-    ds.advancing = true;
-    ds.pcCount++;
-    flashHint("🎉 " + ds.pcCount + "連パフェ！ 次のPCへ…", false);
-    showCompletion("🎉 " + ds.pcCount + "連パフェ！");
-    render();
-    setTimeout(function () {
-      if (G.mode !== "demo_pc") return;
-      const op = window.TT_PCO ? window.TT_PCO.nextOpening() : null;
-      if (!op) { ds.advancing = false; return; }
-      G.grid = E.emptyGrid();
-      ds.stepQueue = op.route; ds.currentStep = 0; ds.totalSteps = op.route.length;
-      G.queue = op.pieces.slice(); ds.advancing = false;
-      render();
-    }, 800);
-  }
-  function demoExecuteStep() {
-    const ds = G.demoState; if (!ds) return;
-    const step = ds.stepQueue[ds.currentStep];
-    if (G.mode === "demo_lst") {
-      if (!step) { // 形完成 → 次の形へ
-        if (ds.advancing) return;
-        ds.advancing = true; sfx("perfect"); showCompletion("✓ 完成！");
-        const nextIdx = (ds.formIdx + 1) % G.lstForms.length;
-        flashHint("✓ 完成！ 次のLST形へ（形 " + (nextIdx + 1) + " / " + G.lstForms.length + "）", false);
-        render();
-        setTimeout(function () { if (G.mode === "demo_lst") setupDemoLSTForm(nextIdx); }, Math.max(400, demoSpeedMs()));
-        return;
-      }
-      const color = (E.PIECES[step.piece] && E.PIECES[step.piece].color) || HC_GRAY;
-      for (let i = 0; i < step.cells.length; i++) { const r = step.cells[i][0], c = step.cells[i][1]; if (r >= 0 && r < ROWS && c >= 0 && c < COLS) G.grid[r][c] = color; }
-      G.pieces++; if (step.piece === "T") G.tspins++;
-      ds.currentStep++; render();
-    } else if (G.mode === "demo_pc") {
-      if (!step) { demoPCComplete(); return; }
-      const gy = E.dropY(G.grid, step.piece, step.rot, step.col, -2);
-      E.lock(G.grid, step.piece, step.rot, step.col, gy);
-      const cl = E.clearLines(G.grid); G.grid = cl.grid;
-      if (cl.cleared > 0) G.lines += cl.cleared;
-      G.pieces++; ds.currentStep++; render();
-      if (ds.currentStep >= ds.totalSteps && boardEmpty()) demoPCComplete();
-    }
-  }
-  function demoPlay() {
-    const ds = G.demoState; if (!ds || ds.playing) return;
-    ds.playing = true; render();
-    ds.timer = setInterval(function () { if (G.demoState && G.demoState.playing) demoExecuteStep(); }, demoSpeedMs());
-  }
-  function demoPause() {
-    const ds = G.demoState; if (!ds) return;
-    ds.playing = false;
-    if (ds.timer) { clearInterval(ds.timer); ds.timer = null; }
-    render();
-  }
-  function demoStep() { const ds = G.demoState; if (!ds || ds.playing) return; demoExecuteStep(); }
-  function demoReset() { demoPause(); if (G.mode === "demo_pc") startDemoPC(); else startDemoLST(); }
-  function demoTogglePlay() { const ds = G.demoState; if (!ds) return; if (ds.playing) demoPause(); else demoPlay(); }
-  function demoSpeedChanged() { const ds = G.demoState; if (ds && ds.playing) { demoPause(); demoPlay(); } } // 再生中なら新速度で再開
-
-  // ===== PC（パーフェクトクリア）練習 A-1自由 / A-2課題 =====
-  let pcFreeWins = 0, pcFreeAtt = 0;   // 自由PC: 達成数 / (再)開始数
-  let pcChWins = 0, pcChTotal = 0;     // 課題PC: 成功 / 挑戦
-  let pcCh = null;                     // 課題状態 {solution:[{piece,col,rot}], rows, board0}
-  let pcAnimTimer = null, pcMsgTimer = null;
-  // ★PC練習: ロックした手が計画ルート通りか判定し、合えば手順を進め、外れたら再計画させる
-  function pcAdvance(a) {
-    if (G.mode !== "pc_free" || !G.pcRoute || !a) return;
-    var step = G.pcRoute[G.pcRouteStep];
-    var onRoute = false;
-    if (step && step.piece === a.piece) {
-      var gy = E.dropY(G.grid, step.piece, step.rot, step.col, -2);
-      var rk = E.cellKey(E.absCells(step.piece, step.rot, step.col, gy));
-      var pk = E.cellKey(E.absCells(a.piece, a.rot, a.px, a.py));
-      if (rk === pk) onRoute = true;
-    }
-    if (onRoute) G.pcRouteStep++;
-    else { G.pcRoute = null; G.pcRouteStep = 0; } // ルート逸脱→次スポーンで再計画
-  }
-  function setPcResult(msg, fail) {
-    const el = $("pc-challenge-result"); if (!el) return;
-    if (fail) {
-      el.innerHTML = '<span>' + tpEscape(msg) + '</span> <button id="btn-pc-sol" class="ctrl-btn small">解答を見る</button>';
-      const b = $("btn-pc-sol"); if (b) b.addEventListener("click", pcShowSolution);
-    } else { el.textContent = msg || ""; }
-  }
-  // A-1 開幕PCモード：生成した開幕PCを出題し、全手順を緑ゴーストで1手ずつ誘導（重力なし）
-  //  ※実バッグ任せだと開幕PCはほぼ不能(実測 発見率~10%)のため、解けるPCを生成して提示する方式に。
-  function newPcOpening() {
-    var op = window.TT_PCO ? window.TT_PCO.nextOpening() : null;
-    if (!op) { G.pcRoute = null; return; }
-    G.grid = E.emptyGrid();
-    G.queue = op.pieces.slice();                   // 解答に必要なミノを出現順で固定供給
-    G.pcRoute = op.route;                           // 全手順をプリセット（配置順＝出現順）
-    G.pcRouteStep = 0;
-    G.bag = []; G.hold = null; G.canHold = true; G.history = []; G.active = null; G.over = false;
-    spawnFromQueue();
-  }
-  function startPCFree() {
-    if (G.chain) G.chain.on = false;
-    G.mode = "pc_free"; resetCommon(); pcFreeAtt++; G.pcCount = 0;
-    newPcOpening();
-    modeLabel.textContent = "PC連パフェ";
-    flashHint("連続パーフェクトクリアに挑戦！緑ゴーストに従って解こう。R＝別の問題。", false);
-    render();
-  }
-  // A-2 課題PC練習：PC課題を生成して出題（重力なし）
-  function startPCChallenge() {
-    if (G.chain) G.chain.on = false;
-    if (pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; }
-    G.mode = "pc_challenge"; resetCommon(); pcCh = null; setPcResult("");
-    if (!window.TT_PC) { flashHint("PCソルバー未読込です。", true); render(); return; }
-    let gen = null, tries = 0;
-    const rows = (Math.random() < 0.5) ? 2 : 4;
-    while (!gen && tries < 6) { gen = window.TT_PC.generatePC(rows); tries++; }
-    if (!gen) gen = window.TT_PC.generatePC(2);
-    if (!gen) { flashHint("課題生成に失敗しました。リセットで再試行。", true); render(); return; }
-    const total = gen.solution.length;
-    let k = (gen.rows === 2) ? (Math.random() < 0.5 ? 0 : 1) : (3 + Math.floor(Math.random() * 3));
-    if (k >= total) k = total - 1; if (k < 0) k = 0;
-    for (let i = 0; i < k; i++) { // 先頭k手を先置き（実プレイ同様にロック＆消去）
-      const s = gen.solution[i];
-      const gy = E.dropY(G.grid, s.piece, s.rot, s.col, -2);
-      E.lock(G.grid, s.piece, s.rot, s.col, gy);
-      G.grid = E.clearLines(G.grid).grid;
-    }
-    G.queue = gen.solution.slice(k).map(function (s) { return s.piece; });
-    pcCh = { solution: gen.solution.slice(k), rows: gen.rows, board0: G.grid.map(function (r) { return r.slice(); }) };
-    pcChTotal++;
-    G.bag = []; G.hold = null; G.canHold = true; G.history = [];
-    spawnFromQueue();
-    modeLabel.textContent = "PC課題";
-    flashHint("ミノを全て使って盤面を空にしよう（PC）。提示ミノ＝解答に必要なミノです。", false);
-    render();
-  }
-  function pcChallengeSolved() {
-    pcChWins++; G.active = null;
-    setPcResult("🎉 PC成功！");
-    flashHint("🎉 PC成功！ 次の課題へ…", false);
-    render();
-    if (pcAnimTimer) clearTimeout(pcAnimTimer);
-    pcAnimTimer = setTimeout(startPCChallenge, 1000);
-  }
-  function pcChallengeExhausted() {
-    G.active = null;
-    setPcResult("残念！ ", true); // 「解答を見る」ボタン表示
-    flashHint("ミノを使い切りました。「解答を見る」で正解を再生できます。R＝別の課題。", true);
-    render();
-  }
-  // 「解答を見る」：出題時の盤面に戻し、解答手順を0.8秒間隔で再生
-  function pcShowSolution() {
-    if (!pcCh || !pcCh.solution || !pcCh.board0) return;
-    if (pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; }
-    G.grid = pcCh.board0.map(function (r) { return r.slice(); });
-    G.active = null; G.aiHint = null;
-    setPcResult("解答を再生中…");
-    let i = 0;
-    (function step() {
-      if (G.mode !== "pc_challenge") { if (pcAnimTimer) { clearTimeout(pcAnimTimer); pcAnimTimer = null; } return; } // モード変更で中断
-      if (i >= pcCh.solution.length) { setPcResult("解答おわり（R＝別の課題）"); render(); return; }
-      const s = pcCh.solution[i++];
-      const gy = E.dropY(G.grid, s.piece, s.rot, s.col, -2);
-      E.lock(G.grid, s.piece, s.rot, s.col, gy);
-      G.grid = E.clearLines(G.grid).grid;
-      render();
-      pcAnimTimer = setTimeout(step, 800);
-    })();
-  }
-  // 盤面の「積まれている行」内の空セル数（PCまで埋める残りセルの目安）
-  function emptyCellsInStack() {
-    let top = ROWS;
-    for (let r = 0; r < ROWS; r++) { let any = false; for (let c = 0; c < COLS; c++) if (G.grid[r][c]) { any = true; break; } if (any) { top = r; break; } }
-    let n = 0;
-    for (let r = top; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (!G.grid[r][c]) n++;
-    return n;
   }
   function startTemplate(id) {
     const t = findTemplate(id);
@@ -2630,7 +2253,6 @@
   }
   function handleHoneycupLock() {
     const a = G.active;
-    judgeAiMove(a);          // ★AI: LST積み選択中のみ G.aiHint があり評価更新（他テンプレは aiHint=null で無処理）
     pushHistory();
     // T-Spin判定（統計・ラベル用。固定前の盤面で判定）
     let spin = "none";
@@ -2693,42 +2315,6 @@
     if (statPc.textContent != G.pcs) statPc.textContent = G.pcs;
     if (statTspin && statTspin.textContent != G.tspins) statTspin.textContent = G.tspins;
     if (statCycle && statCycle.textContent != G.cycles) statCycle.textContent = G.cycles;
-    // ★LST積み(シーケンシャル): サイクル数(完成累計)・現在の形（lstモードのみ）
-    const setStat = (el, v) => { if (el && el.textContent != v) el.textContent = v; };
-    if (statLstCycle) setStat(statLstCycle, (G.mode === "lst") ? String(G.lstCycleCount || 0) : "-");
-    if (statLstForm) setStat(statLstForm, (G.mode === "lst" && G.lstForms) ? ("形 " + (G.lstFormIdx + 1) + " / " + G.lstForms.length) : "-");
-    if (lstGuide) { const show = (G.mode === "lst"); if (lstGuide._on !== show) { lstGuide._on = show; lstGuide.style.display = show ? "" : "none"; } } // ★ガイドテキスト
-    // ★PC: PC率/成功率・残りセル/成功数・ガイド・バナー
-    if (statPcRate) { let v = "-"; if (G.mode === "pc_free") v = (G.pcCount || 0) + "連"; else if (G.mode === "pc_challenge") v = Math.round(pcChWins / Math.max(1, pcChTotal) * 100) + "%"; if (statPcRate.textContent != v) statPcRate.textContent = v; }
-    if (statEmptyCells) { let v = "-"; if (G.mode === "pc_free") v = G.pcRoute ? ("残り" + (G.pcRoute.length - G.pcRouteStep) + "手") : "-"; else if (G.mode === "pc_challenge") v = "成功 " + pcChWins + "/" + pcChTotal; if (statEmptyCells.textContent != v) statEmptyCells.textContent = v; }
-    if (pcGuide) { const show = (G.mode === "pc_free" || G.mode === "pc_challenge"); if (pcGuide._on !== show) { pcGuide._on = show; pcGuide.style.display = show ? "" : "none"; if (show) pcGuide.textContent = (G.mode === "pc_free") ? "緑のゴーストに従うとPCを狙えます" : "ミノを全て使って盤面を空にしよう"; } }
-    if (pcBanner) { // ★PC練習バナー: ルート進捗 / 探索中 / 達成
-      if (G.mode === "pc_free") {
-        pcBanner.style.display = "";
-        let txt, grey = false;
-        if (G.pcMsg) txt = G.pcMsg;
-        else if (G.pcRoute) txt = "🎯 PC手順: " + (G.pcRouteStep + 1) + "手目 / 全" + G.pcRoute.length + "手（緑ゴーストに従ってください）";
-        else { txt = "💭 ミノが揃うまでお待ちください（ホールドも使えます）"; grey = true; }
-        if (pcBanner.textContent !== txt) pcBanner.textContent = txt;
-        pcBanner.classList.toggle("grey", grey);
-      } else if (pcBanner.style.display !== "none") { pcBanner.style.display = "none"; }
-    }
-    // ★AIデモ: 操作パネルの表示・状態・進捗
-    if (demoPanel) {
-      const inDemo = (G.mode === "demo_lst" || G.mode === "demo_pc");
-      if (demoPanel._on !== inDemo) { demoPanel._on = inDemo; demoPanel.style.display = inDemo ? "" : "none"; }
-      if (inDemo && G.demoState) {
-        const ds = G.demoState;
-        const done = ds.currentStep >= ds.totalSteps && !ds.advancing;
-        const stTxt = ds.playing ? "▶ 再生中" : (done ? "✅ 完了" : "⏸ 停止中");
-        if (demoStatus && demoStatus.textContent !== stTxt) demoStatus.textContent = stTxt;
-        const prog = (G.mode === "demo_lst")
-          ? ("手順 " + ds.currentStep + " / " + ds.totalSteps + "　｜　形 " + (ds.formIdx + 1) + " / " + (G.lstForms ? G.lstForms.length : 0))
-          : ("手順 " + ds.currentStep + " / " + ds.totalSteps + "　｜　" + ds.pcCount + " 連パフェ");
-        if (demoProgress && demoProgress.textContent !== prog) demoProgress.textContent = prog;
-        if (demoPlayPause) { const t = ds.playing ? "⏸ 停止" : "▶ スタート"; if (demoPlayPause.textContent !== t) demoPlayPause.textContent = t; }
-      }
-    }
 
     // 盤面背景
     bctx.fillStyle = "#0d1117";
@@ -2815,36 +2401,6 @@
             bctx.fillRect(c * CELL + 3, r * CELL + 3, CELL - 6, CELL - 6);
             bctx.strokeRect(c * CELL + 3, r * CELL + 3, CELL - 6, CELL - 6);
           }
-          bctx.restore();
-        }
-      }
-    }
-
-    // ★AIゴースト（最善手・別レイヤー）。金色=現在のミノを置く / 水色=ホールド交換して置く。既存ゴーストとは独立。
-    if (settings.aiHint && G.aiHint && G.aiHint.cells && G.active && !G.over) {
-      bctx.save();
-      const _g = G.aiHint; // 緑=PCルート / 青緑=PCでホールドしてから / 水色=LSTホールド推奨 / 金色=現在ミノ最善
-      bctx.fillStyle = _g.pc ? (_g.useHold ? "rgba(0,220,180,0.5)" : "rgba(0,255,100,0.5)") : _g.useHold ? "rgba(0,200,255,0.4)" : "rgba(255,215,0,0.4)";
-      bctx.strokeStyle = _g.pc ? (_g.useHold ? "rgba(0,220,180,0.95)" : "rgba(0,255,100,0.95)") : _g.useHold ? "rgba(0,200,255,0.9)" : "rgba(255,215,0,0.85)";
-      bctx.lineWidth = 1.5;
-      const ac = G.aiHint.cells;
-      for (let i = 0; i < ac.length; i++) {
-        const r = ac[i][0], c = ac[i][1];
-        if (r >= 0) { bctx.fillRect(c * CELL + 3, r * CELL + 3, CELL - 6, CELL - 6); bctx.strokeRect(c * CELL + 3.5, r * CELL + 3.5, CELL - 7, CELL - 7); }
-      }
-      bctx.restore();
-    }
-
-    // ★AIデモゴースト（次に置く場所を金色で表示）
-    if ((G.mode === "demo_lst" || G.mode === "demo_pc") && G.demoState && G.demoState.stepQueue && !G.over) {
-      const s = G.demoState.stepQueue[G.demoState.currentStep];
-      if (s) {
-        let dcells = s.cells;
-        if (!dcells && s.piece) { const gy = E.dropY(G.grid, s.piece, s.rot, s.col, -2); dcells = E.absCells(s.piece, s.rot, s.col, gy); }
-        if (dcells) {
-          bctx.save();
-          bctx.fillStyle = "rgba(255,215,0,0.45)"; bctx.strokeStyle = "rgba(255,215,0,0.9)"; bctx.lineWidth = 1.5;
-          for (let i = 0; i < dcells.length; i++) { const r = dcells[i][0], c = dcells[i][1]; if (r >= 0) { bctx.fillRect(c * CELL + 3, r * CELL + 3, CELL - 6, CELL - 6); bctx.strokeRect(c * CELL + 3.5, r * CELL + 3.5, CELL - 7, CELL - 7); } }
           bctx.restore();
         }
       }
@@ -3221,30 +2777,38 @@
     else if (G.mode === "ultra") startUltra();
     else if (G.mode === "honeycup") startHoneycup();
     else if (G.mode === "finesse") { if (G.finesseTimed) startFinesse20(); else startFinesse(); }
-    else if (G.mode === "lst") startLST();
-    else if (G.mode === "pc_free") startPCFree();
-    else if (G.mode === "pc_challenge") startPCChallenge();
-    else if (G.mode === "demo_lst") startDemoLST();
-    else if (G.mode === "demo_pc") startDemoPC();
     else startFree();
+  }
+
+  // ===== メニュー画面 ⇄ ゲーム画面の切替 =====
+  function showGame(mode) {
+    const m = $("view-menu"), g = $("view-game");
+    if (m) m.style.display = "none";
+    if (g) g.style.display = "";
+    // テンプレ練習のときだけ右側のテンプレ一覧パネルを表示
+    const tp = $("tp-panel");
+    if (tp) tp.style.display = (mode === "template") ? "" : "none";
+  }
+  function showMenu() {
+    // 進行中のタイマー類を止めて待機状態へ
+    if (G.chain) G.chain.on = false;
+    G.over = true; G.active = null;
+    const m = $("view-menu"), g = $("view-game");
+    if (g) g.style.display = "none";
+    if (m) m.style.display = "";
   }
 
   // ===== 画面UI構築 =====
   function buildUI() {
-    // モードボタン
-    $("btn-free").addEventListener("click", startFree);
-    if ($("btn-sprint")) $("btn-sprint").addEventListener("click", startSprint);
-    if ($("btn-ultra")) $("btn-ultra").addEventListener("click", startUltra);
-    if ($("btn-honeycup")) $("btn-honeycup").addEventListener("click", startHoneycup);
-    if ($("btn-lst")) $("btn-lst").addEventListener("click", startLST);
-    if ($("btn-pc-free")) $("btn-pc-free").addEventListener("click", startPCFree);
-    if ($("btn-pc-challenge")) $("btn-pc-challenge").addEventListener("click", startPCChallenge);
-    if ($("btn-demo-lst")) $("btn-demo-lst").addEventListener("click", startDemoLST);
-    if ($("btn-demo-pc")) $("btn-demo-pc").addEventListener("click", startDemoPC);
-    if ($("demo-play-pause")) $("demo-play-pause").addEventListener("click", demoTogglePlay);
-    if ($("demo-step")) $("demo-step").addEventListener("click", demoStep);
-    if ($("demo-reset")) $("demo-reset").addEventListener("click", demoReset);
-    if ($("demo-speed")) $("demo-speed").addEventListener("input", demoSpeedChanged);
+    // メニュー画面のモードボタン（data-mode で該当モードを開始しゲーム画面へ）
+    const MODE_START = { free: startFree, sprint: startSprint, ultra: startUltra, template: startHoneycup, finesse: startFinesse, finesse20: startFinesse20 };
+    Array.prototype.forEach.call(document.querySelectorAll(".menu-btn"), function (b) {
+      b.addEventListener("click", function () {
+        const fn = MODE_START[b.getAttribute("data-mode")];
+        if (fn) { showGame(b.getAttribute("data-mode")); fn(); }
+      });
+    });
+    if ($("btn-menu")) $("btn-menu").addEventListener("click", showMenu);
     if ($("btn-honeycup-2")) $("btn-honeycup-2").addEventListener("click", startHoneycup);
     if ($("btn-hc-prev")) $("btn-hc-prev").addEventListener("click", function () { honeycupNext(-1); });
     if ($("btn-hc-next")) $("btn-hc-next").addEventListener("click", function () { honeycupNext(1); });
@@ -3252,10 +2816,8 @@
     if ($("tp-jump")) $("tp-jump").addEventListener("change", function (e) { honeycupJumpForm(Number(e.target.value)); });
     tpLoadUserIntoTemplates(); // 保存済みの取込フォームを「ユーザー取込」テンプレに復元
     buildTemplateList(); // テンプレ一覧を描画
-    $("btn-finesse").addEventListener("click", startFinesse);
-    if ($("btn-finesse-20s")) $("btn-finesse-20s").addEventListener("click", startFinesse20);
-    $("btn-reset").addEventListener("click", doReset);
-    $("btn-undo").addEventListener("click", undo);
+    if ($("btn-reset")) $("btn-reset").addEventListener("click", doReset);
+    if ($("btn-undo")) $("btn-undo").addEventListener("click", undo);
 
     // 暗記モード操作
     if ($("btn-hint-up")) $("btn-hint-up").addEventListener("click", function () { nudgeHint(1); });

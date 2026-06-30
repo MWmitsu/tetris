@@ -10,185 +10,172 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=69" />
+  <link rel="stylesheet" href="css/style.css?v=70" />
 </head>
 <body>
-  <header class="topbar">
-    <h1>テトリス練習ツール</h1>
-    <div class="mode-tag">モード: <span id="mode-label">フリー</span> <span id="app-version" style="opacity:0.6;font-size:11px;margin-left:8px">v69</span></div>
-  </header>
+  <!-- ============ メニュー画面（最初に表示・モード選択） ============ -->
+  <div id="view-menu" class="view-menu">
+    <header class="menu-head">
+      <h1>テトリス練習ツール</h1>
+      <span id="app-version" class="ver">v70</span>
+    </header>
+    <p class="menu-sub">練習したいモードを選んでスタート</p>
 
-  <main class="layout">
-    <!-- 左: ホールド + 操作 -->
-    <aside class="side left">
-      <div class="panel">
-        <div class="panel-title">ホールド</div>
-        <canvas id="hold" width="110" height="80"></canvas>
-      </div>
-      <div class="panel stats">
-        <div class="panel-title">スタッツ</div>
-        <div class="stat"><span>ライン</span><b id="stat-lines">0</b></div>
-        <div class="stat"><span>ミノ数</span><b id="stat-pieces">0</b></div>
-        <div class="stat"><span>T-Spin</span><b id="stat-tspin">0</b></div>
-        <div class="stat"><span>PC</span><b id="stat-pc">0</b></div>
-        <div class="stat"><span>巡目</span><b id="stat-cycle">0</b></div>
-        <div class="stat"><span>サイクル数(LST)</span><b id="stat-lst-cycle">-</b></div>
-        <div class="stat"><span>現在の形(LST)</span><b id="stat-lst-form">-</b></div>
-        <div class="stat"><span>PC率/成功率</span><b id="stat-pc-rate">-</b></div>
-        <div class="stat"><span>残り/成功数</span><b id="stat-empty-cells">-</b></div>
-      </div>
-      <div class="panel">
-        <div class="panel-title">モード</div>
-        <button id="btn-free" class="ctrl-btn">フリー</button>
-        <button id="btn-sprint" class="ctrl-btn">40LINE</button>
-        <button id="btn-ultra" class="ctrl-btn">Ultra (3分)</button>
-        <button id="btn-honeycup" class="ctrl-btn">テンプレ練習</button>
-        <button id="btn-lst" class="ctrl-btn">LST積み</button>
-        <button id="btn-pc-free" class="ctrl-btn">PC練習</button>
-        <button id="btn-pc-challenge" class="ctrl-btn">PC課題</button>
-        <button id="btn-demo-lst" class="ctrl-btn">LST デモ</button>
-        <button id="btn-demo-pc" class="ctrl-btn">PC デモ</button>
-        <button id="btn-finesse" class="ctrl-btn">最適化</button>
-        <button id="btn-finesse-20s" class="ctrl-btn">最適化 20秒</button>
-        <button id="btn-reset" class="ctrl-btn primary">リセット (R)</button>
-        <button id="btn-undo" class="ctrl-btn">一手戻す ↩ (U)</button>
-      </div>
-      <div class="panel" id="demo-panel" style="display:none">
-        <div class="panel-title">AIデモ操作</div>
-        <div id="demo-status" class="demo-status">⏸ 停止中</div>
-        <div id="demo-progress" class="note">手順 0 / 0</div>
-        <div class="set-row"><span>速度</span><input type="range" id="demo-speed" min="1" max="5" value="3"></div>
-        <p class="note">1(低速)〜5(高速)。再生中に変えると即反映。</p>
-        <button id="demo-play-pause" class="ctrl-btn primary">▶ スタート</button>
-        <button id="demo-step" class="ctrl-btn">1手進む</button>
-        <button id="demo-reset" class="ctrl-btn">リセット</button>
-      </div>
-    </aside>
+    <div class="menu-grid">
+      <button class="menu-btn" data-mode="free"><span class="mb-title">フリー</span><span class="mb-desc">自由に積む</span></button>
+      <button class="menu-btn" data-mode="sprint"><span class="mb-title">40LINE</span><span class="mb-desc">40列タイムアタック</span></button>
+      <button class="menu-btn" data-mode="ultra"><span class="mb-title">Ultra</span><span class="mb-desc">3分間スコアアタック</span></button>
+      <button class="menu-btn" data-mode="template"><span class="mb-title">テンプレ練習</span><span class="mb-desc">定跡・完成形を組む</span></button>
+      <button class="menu-btn" data-mode="finesse"><span class="mb-title">最適化</span><span class="mb-desc">最少操作で置く</span></button>
+      <button class="menu-btn" data-mode="finesse20"><span class="mb-title">最適化 20秒</span><span class="mb-desc">20秒チャレンジ</span></button>
+    </div>
 
-    <!-- 中央: 盤面 -->
-    <section class="center">
-      <div id="lst-guide" class="lst-guide" style="display:none">薄い色の目標形を組もう！完成すると次の形へ進みます（永久ループ）</div>
-      <div id="pc-guide" class="lst-guide" style="display:none">緑のゴーストに従うとPCを狙えます</div>
-      <div id="pc-banner" class="pc-banner" style="display:none">🎯 PC狙えます！</div>
-      <div id="pc-challenge-result" class="pc-result"></div>
-      <div class="board-wrap">
-        <canvas id="board" width="300" height="600"></canvas>
-        <div id="tp-flash" class="tp-flash"></div>
-      </div>
-      <div id="ta-time" class="ta-time"></div>
-      <div id="hint-text" class="hint">準備中…</div>
-      <!-- タッチ操作（スマホ用） -->
-      <div class="touchpad">
-        <button id="t-ccw">⟲</button>
-        <button id="t-left">←</button>
-        <button id="t-down">↓</button>
-        <button id="t-right">→</button>
-        <button id="t-cw">⟳</button>
-        <button id="t-180">180°</button>
-        <button id="t-drop" class="wide2">ドロップ</button>
-        <button id="t-hold">ホールド</button>
-        <button id="t-undo">↩戻す</button>
-      </div>
-    </section>
-
-    <!-- 右: ネクスト + テンプレ + 設定 -->
-    <aside class="side right">
-      <div class="panel">
-        <div class="panel-title">ネクスト</div>
-        <canvas id="next" width="110" height="320"></canvas>
-      </div>
-
-      <div class="panel">
-        <div class="panel-title">テンプレ練習（tetrismaps版・8種）</div>
-        <div class="tp-hint">💡 下の一覧からテンプレを選ぶと開始。◀▶や「形」セレクタで配置を切替。</div>
-        <div id="tp-list" class="tp-list"><!-- JSで8テンプレを一覧表示 --></div>
-        <div class="tp-nav">
-          <button id="btn-hc-prev" class="ctrl-btn small" title="前の形">◀</button>
-          <span id="tp-formidx" class="tp-formidx">— / —</span>
-          <button id="btn-hc-next" class="ctrl-btn small" title="次の形">▶</button>
+    <details class="menu-settings">
+      <summary>⚙ 設定・操作</summary>
+      <div class="menu-settings-body">
+        <div class="ms-col">
+          <div class="panel-title">表示・動作</div>
+          <label class="toggle"><input type="checkbox" id="set-ghost"> ゴースト表示</label>
+          <label class="toggle"><input type="checkbox" id="set-hint"> ヒント(目標位置)</label>
+          <label class="toggle"><input type="checkbox" id="set-gravity"> 重力(自動落下)</label>
+          <label class="toggle"><input type="checkbox" id="set-repeat"> テンプレ自動反復</label>
+          <label class="toggle"><input type="checkbox" id="set-sound"> 効果音(SE)</label>
+          <p class="note">横移動の効き＝DAS 130ms／ARR 25ms（固定）。</p>
         </div>
-        <select id="tp-jump" class="tp-jump" aria-label="形を選択"></select>
-        <div class="io-row">
-          <button id="btn-hc-rand" class="ctrl-btn small">🎲 ランダムな形</button>
-          <button id="btn-honeycup-2" class="ctrl-btn small primary">この形をやり直す</button>
-        </div>
-        <div id="hc-status" class="note tp-status">上の一覧からテンプレを選ぶと開始します。</div>
-        <div class="tp-legend"><span class="sw sw-base"></span>土台（配置済み）<span class="sw sw-target"></span>置く目標（薄い色）</div>
-        <p class="note">薄い色の<b>目標形</b>を組めば完成（ホールド可・<b>通常どおりライン消去あり</b>）。<b>失敗しても止まらず継続</b>できます。R＝やり直し。はちみつ砲は形1が「1巡目の土台」。</p>
-      </div>
-
-      <div class="panel">
-        <div class="panel-title">テト譜(fumen)から取込</div>
-        <p class="note">v115@… のテト譜を貼り付けて取込むと、上の「テンプレ練習」に<b>自作フォーム</b>として追加され、すぐ練習できます（灰=土台／色=置く目標）。</p>
-        <textarea id="fumen-text" class="io-text" placeholder="v115@... を貼り付け"></textarea>
-        <div class="io-row">
-          <button id="btn-fumen" class="ctrl-btn small primary">完成形を取込</button>
-          <button id="btn-fumen-steps" class="ctrl-btn small">全ページ取込</button>
-        </div>
-        <button id="btn-user-clear" class="ctrl-btn small">取込フォームを全消去</button>
-
-        <div class="panel-title sub">取込フォームの共有(JSON)</div>
-        <textarea id="io-text" class="io-text" placeholder="エクスポートで出力 ／ JSON配列を貼ってインポート"></textarea>
-        <div class="io-row">
-          <button id="btn-export" class="ctrl-btn small">エクスポート</button>
-          <button id="btn-import" class="ctrl-btn small">インポート</button>
+        <div class="ms-col">
+          <div class="panel-title">ゲームパッド (Switch Joy-Con)</div>
+          <label class="toggle"><input type="checkbox" id="set-gamepad" checked> ゲームパッドを使う</label>
+          <p id="pad-status" class="note">未接続（Joy-Conのボタンを1回押すと有効化）</p>
+          <details class="ctrl-sec">
+            <summary class="panel-title" style="cursor:pointer">操作設定（キー / パッド）</summary>
+            <p class="note">各行の「キー」「パッド」を押し、続けて割り当てたいキー/ボタンを押すと変更（キーはEscで取消）。</p>
+            <div class="ctrl-map-row ctrl-map-head"><span class="cm-label">操作</span><span class="cm-btn">キー</span><span class="cm-btn">パッド</span></div>
+            <div id="controls-list"></div>
+            <button id="btn-controls-reset" class="ctrl-btn small">デフォルトに戻す</button>
+          </details>
         </div>
       </div>
+    </details>
 
-      <div class="panel">
-        <div class="panel-title">設定</div>
-        <label class="toggle"><input type="checkbox" id="set-ghost"> ゴースト表示</label>
-        <label class="toggle"><input type="checkbox" id="set-hint"> ヒント(目標位置)</label>
-        <label class="toggle"><input type="checkbox" id="set-gravity"> 重力(自動落下)</label>
-        <label class="toggle"><input type="checkbox" id="set-repeat"> テンプレ自動反復</label>
-        <label class="toggle"><input type="checkbox" id="set-sound"> 効果音(SE)</label>
-        <p class="note">横移動の効き（DAS 130ms／ARR 25ms）に固定。AIゴーストは「LST積み」「PC連パフェ」専用です（フリー/40LINE/Ultra には表示しません）。</p>
-      </div>
+    <footer class="help menu-help">
+      <b>キー</b>: ←→移動 ／ ↑ or X 右回転 ／ Z or Ctrl 左回転 ／ A 180° ／ ↓ ソフト ／ Space ハードドロップ ／ Shift or C ホールド ／ U 一手戻す ／ R リセット<br />
+      <b>Joy-Con</b>（左右セット）: 移動=スティック/十字 ／ ↑ハードドロップ ／ ↓ソフト ／ A右回転 B左回転 X180° Y/L/Rホールド ／ −Undo ＋リセット。
+    </footer>
+  </div>
 
-      <div class="panel">
-        <div class="panel-title">ゲームパッド (Switch Joy-Con)</div>
-        <label class="toggle"><input type="checkbox" id="set-gamepad" checked> ゲームパッドを使う</label>
-        <p id="pad-status" class="note">未接続（ページを選択し、Joy-Conのボタンを1回押すと有効化）</p>
-        <p class="note">Joy-Con 左右セットは標準持ちで自動認識。割り当ては下の「操作設定」で変更できます。</p>
-      </div>
+  <!-- ============ ゲーム画面（モード選択後に表示） ============ -->
+  <div id="view-game" class="view-game" style="display:none">
+    <div class="game-bar">
+      <button id="btn-menu" class="ctrl-btn small">≡ メニュー</button>
+      <span class="mode-tag">モード: <span id="mode-label">フリー</span></span>
+      <span class="game-bar-actions">
+        <button id="btn-undo" class="ctrl-btn small">↩ 戻す (U)</button>
+        <button id="btn-reset" class="ctrl-btn small primary">リセット (R)</button>
+      </span>
+    </div>
 
-      <div class="panel">
-        <details class="ctrl-sec">
-          <summary class="panel-title" style="cursor:pointer">操作設定（キー / パッド）</summary>
-          <p class="note">各行の「キー」「パッド」ボタンを押し、続けて割り当てたいキー/ボタンを押すと変更できます（キーはEscで取消）。</p>
-          <div class="ctrl-map-row ctrl-map-head"><span class="cm-label">操作</span><span class="cm-btn">キー</span><span class="cm-btn">パッド</span></div>
-          <div id="controls-list"></div>
-          <button id="btn-controls-reset" class="ctrl-btn small">デフォルトに戻す</button>
-        </details>
-      </div>
+    <main class="game-main">
+      <!-- 左: ホールド + スタッツ -->
+      <aside class="side left">
+        <div class="panel">
+          <div class="panel-title">ホールド</div>
+          <canvas id="hold" width="110" height="80"></canvas>
+        </div>
+        <div class="panel stats">
+          <div class="panel-title">スタッツ</div>
+          <div class="stat"><span>ライン</span><b id="stat-lines">0</b></div>
+          <div class="stat"><span>ミノ数</span><b id="stat-pieces">0</b></div>
+          <div class="stat"><span>T-Spin</span><b id="stat-tspin">0</b></div>
+          <div class="stat"><span>PC</span><b id="stat-pc">0</b></div>
+          <div class="stat"><span>巡目</span><b id="stat-cycle">0</b></div>
+        </div>
+      </aside>
 
-    </aside>
-  </main>
+      <!-- 中央: 盤面 -->
+      <section class="center">
+        <div class="board-wrap">
+          <canvas id="board" width="300" height="600"></canvas>
+          <div id="tp-flash" class="tp-flash"></div>
+        </div>
+        <div id="ta-time" class="ta-time"></div>
+        <div id="hint-text" class="hint">準備中…</div>
+        <!-- タッチ操作（スマホ用） -->
+        <div class="touchpad">
+          <button id="t-ccw">⟲</button>
+          <button id="t-left">←</button>
+          <button id="t-down">↓</button>
+          <button id="t-right">→</button>
+          <button id="t-cw">⟳</button>
+          <button id="t-180">180°</button>
+          <button id="t-drop" class="wide2">ドロップ</button>
+          <button id="t-hold">ホールド</button>
+          <button id="t-undo">↩戻す</button>
+        </div>
+      </section>
 
-  <footer class="help">
-    <b>キー操作</b>: ← → 移動 ／ ↑ または X 右回転 ／ Z または Ctrl 左回転 ／ A 180°回転 ／
-    ↓ ソフトドロップ ／ Space ハードドロップ ／ Shift または C ホールド ／ U または ⌫ 一手戻す ／ R リセット<br />
-    <b>T-Spin</b> はスロットに回転で滑り込ませると自動判定（T-Spin / Mini / シングル〜トリプル）。
-    <b>完成形テンプレ</b>はうすい色の目標形を組み上げれば成功（スピン・ホールドOK）。<br />
-    <b>Joy-Con</b>（左右セット）対応：移動=左スティック/十字 ／ ↑ハードドロップ ／ ↓ソフト ／ A右回転 B左回転 X180° Y/L/Rホールド ／ −Undo ＋リセット。
-  </footer>
+      <!-- 右: ネクスト（＋テンプレ練習時のみ一覧パネル） -->
+      <aside class="side right">
+        <div class="panel">
+          <div class="panel-title">ネクスト</div>
+          <canvas id="next" width="110" height="320"></canvas>
+        </div>
+
+        <!-- テンプレ練習モードのときだけ表示（showGameで切替） -->
+        <div id="tp-panel" style="display:none">
+          <div class="panel">
+            <div class="panel-title">テンプレ練習（tetrismaps版・8種）</div>
+            <div class="tp-hint">💡 下の一覧からテンプレを選ぶと開始。◀▶や「形」セレクタで配置を切替。</div>
+            <div id="tp-list" class="tp-list"><!-- JSで一覧表示 --></div>
+            <div class="tp-nav">
+              <button id="btn-hc-prev" class="ctrl-btn small" title="前の形">◀</button>
+              <span id="tp-formidx" class="tp-formidx">— / —</span>
+              <button id="btn-hc-next" class="ctrl-btn small" title="次の形">▶</button>
+            </div>
+            <select id="tp-jump" class="tp-jump" aria-label="形を選択"></select>
+            <div class="io-row">
+              <button id="btn-hc-rand" class="ctrl-btn small">🎲 ランダムな形</button>
+              <button id="btn-honeycup-2" class="ctrl-btn small primary">この形をやり直す</button>
+            </div>
+            <div id="hc-status" class="note tp-status">上の一覧からテンプレを選ぶと開始します。</div>
+            <div class="tp-legend"><span class="sw sw-base"></span>土台（配置済み）<span class="sw sw-target"></span>置く目標（薄い色）</div>
+            <p class="note">薄い色の<b>目標形</b>を組めば完成（ホールド可・<b>通常どおりライン消去あり</b>）。<b>失敗しても止まらず継続</b>。R＝やり直し。</p>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">テト譜(fumen)から取込</div>
+            <p class="note">v115@… のテト譜を貼り付けて取込むと、上の「テンプレ練習」に<b>自作フォーム</b>として追加され、すぐ練習できます（灰=土台／色=置く目標）。</p>
+            <textarea id="fumen-text" class="io-text" placeholder="v115@... を貼り付け"></textarea>
+            <div class="io-row">
+              <button id="btn-fumen" class="ctrl-btn small primary">完成形を取込</button>
+              <button id="btn-fumen-steps" class="ctrl-btn small">全ページ取込</button>
+            </div>
+            <button id="btn-user-clear" class="ctrl-btn small">取込フォームを全消去</button>
+
+            <div class="panel-title sub">取込フォームの共有(JSON)</div>
+            <textarea id="io-text" class="io-text" placeholder="エクスポートで出力 ／ JSON配列を貼ってインポート"></textarea>
+            <div class="io-row">
+              <button id="btn-export" class="ctrl-btn small">エクスポート</button>
+              <button id="btn-import" class="ctrl-btn small">インポート</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=69"></script>
-  <script src="js/ai.js?v=69"></script>
-  <script src="js/pc_solver.js?v=69"></script>
-  <script src="js/pc_opener.js?v=69"></script>
-  <script src="js/templates.js?v=69"></script>
-  <script src="js/catalog.js?v=69"></script>
-  <script src="js/catalog_data.js?v=69"></script>
-  <script src="js/fumen.js?v=69"></script>
-  <script src="js/honeycup.js?v=69"></script>
-  <script src="js/honeycup_patterns.js?v=69"></script>
-  <script src="js/templates_practice.js?v=69"></script>
-  <script src="js/templates_midgame.js?v=69"></script>
-  <script src="js/templates_lst.js?v=69"></script>
-  <script src="js/finesse.js?v=69"></script>
-  <script src="js/app.js?v=69"></script>
+  <script src="js/engine.js?v=70"></script>
+  <script src="js/templates.js?v=70"></script>
+  <script src="js/catalog.js?v=70"></script>
+  <script src="js/catalog_data.js?v=70"></script>
+  <script src="js/fumen.js?v=70"></script>
+  <script src="js/honeycup.js?v=70"></script>
+  <script src="js/honeycup_patterns.js?v=70"></script>
+  <script src="js/templates_practice.js?v=70"></script>
+  <script src="js/templates_midgame.js?v=70"></script>
+  <script src="js/templates_lst.js?v=70"></script>
+  <script src="js/finesse.js?v=70"></script>
+  <script src="js/app.js?v=70"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>
