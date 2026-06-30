@@ -2340,18 +2340,17 @@
   function edClear() { if (!ED.grid) return; edPush(); ED.grid = edEmptyGrid(); edRefreshGridDom(); }
   function edMoveCursor(dr, dc) { if (!ED.grid) return; ED.cr = Math.max(0, Math.min(EDIT_ROWS - 1, ED.cr + dr)); ED.cc = Math.max(0, Math.min(COLS - 1, ED.cc + dc)); edRefreshGridDom(); }
   // ---- ブラシ / ツール（セル⇔ミノ）/ 回転 ----
-  function edSetBrush(b) { ED.brush = b; const root = $("tpl-ed-brush"); if (root) { const bs = root.querySelectorAll(".ed-brush"); for (let i = 0; i < bs.length; i++) bs[i].classList.toggle("sel", bs[i].getAttribute("data-brush") === b); } }
-  function edCycleBrush(d) { const avail = (ED.tool === "mino") ? ["I", "O", "T", "S", "Z", "J", "L"] : ED_BRUSHES; let i = avail.indexOf(ED.brush); if (i < 0) i = 0; i = (i + d + avail.length) % avail.length; edSetBrush(avail[i]); }
-  function edSetTool(tool) {
-    ED.tool = tool;
-    const tc = $("btn-ed-tool-cell"), tm = $("btn-ed-tool-mino"); if (tc) tc.classList.toggle("sel", tool === "cell"); if (tm) tm.classList.toggle("sel", tool === "mino");
-    if (tool === "mino" && !/[ILOZTJS]/.test(ED.brush)) edSetBrush("T");
-    const root = $("tpl-ed-brush"); if (root) { const bs = root.querySelectorAll(".ed-brush"); for (let i = 0; i < bs.length; i++) { const b = bs[i].getAttribute("data-brush"); bs[i].style.display = (tool === "mino" && (b === "_" || b === "X")) ? "none" : ""; } }
-    const mt = $("ed-mino-tools"); if (mt) mt.style.display = (tool === "mino") ? "" : "none";
+  // ブラシ選択でモードを自動決定: ミノ(I/O/T/S/Z/J/L)を選ぶと「そのミノの形で置く」／空・土台は1マス塗り
+  function edSetBrush(b) {
+    ED.brush = b;
+    ED.tool = /[ILOZTJS]/.test(b) ? "mino" : "cell";
+    const root = $("tpl-ed-brush"); if (root) { const bs = root.querySelectorAll(".ed-brush"); for (let i = 0; i < bs.length; i++) bs[i].classList.toggle("sel", bs[i].getAttribute("data-brush") === b); }
+    const mt = $("ed-mino-tools"); if (mt) mt.style.display = (ED.tool === "mino") ? "" : "none";
     edUpdateRotLabel();
   }
+  function edCycleBrush(d) { let i = ED_BRUSHES.indexOf(ED.brush); if (i < 0) i = 0; i = (i + d + ED_BRUSHES.length) % ED_BRUSHES.length; edSetBrush(ED_BRUSHES[i]); }
   function edRotate() { ED.rot = (ED.rot + 1) % 4; edUpdateRotLabel(); }
-  function edUpdateRotLabel() { const el = $("btn-ed-rot"); if (el) el.textContent = "回転 " + ED.rot + "→" + ((ED.rot + 1) % 4); }
+  function edUpdateRotLabel() { const el = $("btn-ed-rot"); if (el) el.textContent = "向き " + (ED.rot + 1) + "/4"; }
   function edShow(on) {
     ED.open = on; const m = $("tpl-modal"); if (m) m.style.display = on ? "" : "none";
     if (!on) { ED._painting = false; if (typeof pad !== "undefined" && pad) { pad.prev = {}; pad._plusPrev = false; pad._plusConsumed = true; } }
@@ -2374,7 +2373,7 @@
     if ($("tpl-ed-title")) $("tpl-ed-title").textContent = "新規テンプレを作成";
     if ($("tpl-ed-name")) $("tpl-ed-name").value = "自作";
     if ($("tpl-ed-comment")) $("tpl-ed-comment").value = "";
-    edSetBrush("X"); edSetTool("cell"); edBuildGridDom(); edShow(true);
+    edSetBrush("X"); edBuildGridDom(); edShow(true);
   }
   function edOpenEditCurrent() {
     const t = tpCurTemplate(); if (!t) return;
@@ -2385,7 +2384,7 @@
     if (tpIsEditable(t)) { ED.mode = "edit"; ED.tmplIdx = tpTmpl; ED.formOi = oi; if ($("tpl-ed-title")) $("tpl-ed-title").textContent = "この形を編集"; if ($("tpl-ed-name")) $("tpl-ed-name").value = t.title || ""; }
     else { ED.mode = "dup"; ED.tmplIdx = -1; ED.formOi = -1; if ($("tpl-ed-title")) $("tpl-ed-title").textContent = "複製して編集（自作に保存）"; if ($("tpl-ed-name")) $("tpl-ed-name").value = (t.title || "自作") + " (コピー)"; }
     if ($("tpl-ed-comment")) $("tpl-ed-comment").value = form.comment || "";
-    edSetBrush("X"); edSetTool("cell"); edBuildGridDom(); edShow(true);
+    edSetBrush("X"); edBuildGridDom(); edShow(true);
   }
   function edCancel() { edShow(false); }
   // ---- エディタのキーボード操作（表示中のみ占有） ----
@@ -3216,8 +3215,6 @@
     if ($("btn-tpl-save")) $("btn-tpl-save").addEventListener("click", edSave);
     if ($("btn-tpl-cancel")) $("btn-tpl-cancel").addEventListener("click", edCancel);
     if ($("btn-tpl-clear")) $("btn-tpl-clear").addEventListener("click", edClear);
-    if ($("btn-ed-tool-cell")) $("btn-ed-tool-cell").addEventListener("click", function () { edSetTool("cell"); });
-    if ($("btn-ed-tool-mino")) $("btn-ed-tool-mino").addEventListener("click", function () { edSetTool("mino"); });
     if ($("btn-ed-undo")) $("btn-ed-undo").addEventListener("click", edUndo);
     if ($("btn-ed-redo")) $("btn-ed-redo").addEventListener("click", edRedo);
     if ($("btn-ed-mirror")) $("btn-ed-mirror").addEventListener("click", edMirror);
