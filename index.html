@@ -10,14 +10,14 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=71" />
+  <link rel="stylesheet" href="css/style.css?v=72" />
 </head>
 <body>
   <!-- ============ メニュー画面（最初に表示・モード選択） ============ -->
   <div id="view-menu" class="view-menu">
     <header class="menu-head">
       <h1>テトリス練習ツール</h1>
-      <span id="app-version" class="ver">v71</span>
+      <span id="app-version" class="ver">v72</span>
     </header>
     <p class="menu-sub">練習したいモードを選んでスタート<br><small style="color:var(--muted)">Joy-Con / キーボードでも操作できます（十字・スティック＝移動 ／ A・Enter＝決定 ／ ＋長押し＝メニューへ戻る）</small></p>
 
@@ -66,7 +66,7 @@
   <!-- ============ ゲーム画面（モード選択後に表示） ============ -->
   <div id="view-game" class="view-game" style="display:none">
     <div class="game-bar">
-      <button id="btn-menu" class="ctrl-btn small">≡ メニュー</button>
+      <button id="btn-menu" class="ctrl-btn small" title="ゲームを抜けてモード選択へ（Esc / M / Joy-Con＋長押し）">≡ メニューに戻る</button>
       <span class="mode-tag">モード: <span id="mode-label">フリー</span></span>
       <span class="game-bar-actions">
         <button id="btn-undo" class="ctrl-btn small">↩ 戻す (U)</button>
@@ -141,6 +141,37 @@
             <p class="note">薄い色の<b>目標形</b>を組めば完成（ホールド可・<b>通常どおりライン消去あり</b>）。<b>失敗しても止まらず継続</b>。R＝やり直し。</p>
           </div>
 
+          <!-- テンプレ編集ツール -->
+          <div class="panel">
+            <div class="panel-title">テンプレ編集</div>
+            <p class="note">自作テンプレは<b>追加・編集・削除</b>OK。組み込み（最初から入っている形）は<b>非表示</b>にできます（データは消えず復元可能）。</p>
+            <div class="io-row">
+              <button id="btn-tpl-new" class="ctrl-btn small primary">🆕 新規テンプレ</button>
+              <button id="btn-tpl-edit" class="ctrl-btn small">✏ この形を編集</button>
+            </div>
+            <div class="io-row">
+              <button id="btn-tpl-del" class="ctrl-btn small">🗑 この形を削除</button>
+              <button id="btn-tpl-hide" class="ctrl-btn small">🚫 このテンプレを非表示</button>
+            </div>
+            <button id="btn-tpl-manage" class="ctrl-btn small">♻ 非表示の管理（復元）</button>
+            <div id="tpl-hidden-list" style="display:none;margin-top:6px"></div>
+
+            <!-- セルエディタ（開いたときだけ表示） -->
+            <div id="tpl-editor" style="display:none;margin-top:8px">
+              <div class="panel-title sub" id="tpl-ed-title">盤面エディタ</div>
+              <p class="note">ブラシを選んでマスをクリック（同じ色を再クリックで消去）。下に詰めて描きます。完成後「保存」。</p>
+              <label class="ed-field"><span>名前</span><input type="text" id="tpl-ed-name" maxlength="24" /></label>
+              <label class="ed-field"><span>メモ</span><input type="text" id="tpl-ed-comment" maxlength="40" placeholder="任意" /></label>
+              <div id="tpl-ed-brush" class="ed-brush-row"><!-- JSでブラシ生成 --></div>
+              <div id="tpl-ed-grid" class="ed-grid"><!-- JSでセル生成 --></div>
+              <div class="io-row">
+                <button id="btn-tpl-save" class="ctrl-btn small primary">💾 保存</button>
+                <button id="btn-tpl-clear" class="ctrl-btn small">🧹 全消去</button>
+                <button id="btn-tpl-cancel" class="ctrl-btn small">↩ キャンセル</button>
+              </div>
+            </div>
+          </div>
+
           <div class="panel">
             <div class="panel-title">テト譜(fumen)から取込</div>
             <p class="note">v115@… のテト譜を貼り付けて取込むと、上の「テンプレ練習」に<b>自作フォーム</b>として追加され、すぐ練習できます（灰=土台／色=置く目標）。</p>
@@ -164,18 +195,18 @@
   </div>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=71"></script>
-  <script src="js/templates.js?v=71"></script>
-  <script src="js/catalog.js?v=71"></script>
-  <script src="js/catalog_data.js?v=71"></script>
-  <script src="js/fumen.js?v=71"></script>
-  <script src="js/honeycup.js?v=71"></script>
-  <script src="js/honeycup_patterns.js?v=71"></script>
-  <script src="js/templates_practice.js?v=71"></script>
-  <script src="js/templates_midgame.js?v=71"></script>
-  <script src="js/templates_lst.js?v=71"></script>
-  <script src="js/finesse.js?v=71"></script>
-  <script src="js/app.js?v=71"></script>
+  <script src="js/engine.js?v=72"></script>
+  <script src="js/templates.js?v=72"></script>
+  <script src="js/catalog.js?v=72"></script>
+  <script src="js/catalog_data.js?v=72"></script>
+  <script src="js/fumen.js?v=72"></script>
+  <script src="js/honeycup.js?v=72"></script>
+  <script src="js/honeycup_patterns.js?v=72"></script>
+  <script src="js/templates_practice.js?v=72"></script>
+  <script src="js/templates_midgame.js?v=72"></script>
+  <script src="js/templates_lst.js?v=72"></script>
+  <script src="js/finesse.js?v=72"></script>
+  <script src="js/app.js?v=72"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>

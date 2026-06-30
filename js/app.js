@@ -2021,7 +2021,15 @@
   let hcPracIdx = 0;  // 形(form)インデックス（現テンプレ内）
   function hcPieceColor(ch) { return (E.PIECES[ch] && E.PIECES[ch].color) || "#9aa7b5"; }
   function tpCurTemplate() { return TP_TEMPLATES[tpTmpl] || null; }
-  function tpForms() { const t = tpCurTemplate(); return (t && t.forms) || []; }
+  // 表示用フォーム（非表示にした形を除外）。tpVisibleEntries は元indexの対応も返す。
+  function tpVisibleEntries(t) {
+    if (!t || !t.forms) return [];
+    const out = [];
+    for (let i = 0; i < t.forms.length; i++) if (!isFormHidden(t.id, i)) out.push({ f: t.forms[i], oi: i });
+    return out;
+  }
+  function tpForms() { return tpVisibleEntries(tpCurTemplate()).map(function (e) { return e.f; }); }
+  function tpCurOrig() { const v = tpVisibleEntries(tpCurTemplate()); const e = v[hcPracIdx]; return e ? e.oi : -1; }
   // gridを床接地でboardセルへ展開（上下の空行は除去済。20行を超える分は上端を切る）
   function hcSetupCells(form) {
     const g = form && form.grid;
@@ -2068,6 +2076,7 @@
     let lastCat = null;
     for (let i = 0; i < TP_TEMPLATES.length; i++) {
       const t = TP_TEMPLATES[i];
+      if (isTplHidden(t.id)) continue; // 非表示テンプレはスキップ
       const cat = tpCategoryOf(t);
       if (cat !== lastCat) {
         const h = document.createElement("div");
@@ -2075,10 +2084,11 @@
         root.appendChild(h); lastCat = cat;
       }
       const b = document.createElement("button");
-      b.className = "tp-item" + (i === tpTmpl ? " active" : "");
+      b.className = "tp-item" + (i === tpTmpl ? " active" : "") + (t.editable ? " mine" : "");
       b.setAttribute("data-i", i);
       const bp = tpBestPct(t);
-      const sub = t.forms.length + " 形" + (bp != null ? "・最高" + bp + "%" : "");
+      const visN = tpVisibleEntries(t).length;
+      const sub = visN + " 形" + (bp != null ? "・最高" + bp + "%" : "") + (t.editable ? "・自作" : "");
       b.innerHTML = "<b>" + tpEscape(t.title) + "</b><small>" + sub + "</small>";
       (function (idx) { b.addEventListener("click", function () { honeycupSelectTemplate(idx); }); })(i);
       root.appendChild(b);
@@ -2200,12 +2210,186 @@
     if (G.mode === "honeycup") startHoneycup();
     flashHint("取込フォームを全消去しました。", false);
   }
+
+  // ========================================================================
+  //  テンプレ編集機能：自作テンプレ(追加/編集/削除) ＋ 組み込み(非表示) ＋ セルエディタ
+  // ========================================================================
+  const TP_TPL_KEY = "tt_user_templates_v1";  // 自作テンプレ [{id,title,forms:[{grid,comment}]}]
+  const TP_HIDE_KEY = "tt_hidden_v1";         // 非表示: {tpl:{id:1}, form:{"id#oi":1}}
+  const EDIT_ROWS = 14;                       // セルエディタの編集可能行数(下詰め)
+  const ED_BRUSHES = ["_", "X", "I", "O", "T", "S", "Z", "J", "L"]; // 空/土台/各ミノ
+  function tpLoadCustom() { try { const a = JSON.parse(localStorage.getItem(TP_TPL_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function tpSaveCustom(list) { try { localStorage.setItem(TP_TPL_KEY, JSON.stringify(list)); } catch (e) {} }
+  function tpLoadHidden() { try { const o = JSON.parse(localStorage.getItem(TP_HIDE_KEY) || "{}"); return { tpl: (o && o.tpl) || {}, form: (o && o.form) || {} }; } catch (e) { return { tpl: {}, form: {} }; } }
+  function tpSaveHidden() { try { localStorage.setItem(TP_HIDE_KEY, JSON.stringify(tpHidden)); } catch (e) {} }
+  let tpHidden = tpLoadHidden();
+  function isTplHidden(id) { return !!(tpHidden.tpl && tpHidden.tpl[id]); }
+  function isFormHidden(id, oi) { return !!(tpHidden.form && tpHidden.form[id + "#" + oi]); }
+  function tpIsEditable(t) { return !!(t && (t.id === "user" || t.editable)); }
+  function findTpById(id) { for (let i = 0; i < TP_TEMPLATES.length; i++) if (TP_TEMPLATES[i].id === id) return TP_TEMPLATES[i]; return null; }
+  function firstVisibleTpl() { for (let i = 0; i < TP_TEMPLATES.length; i++) if (!isTplHidden(TP_TEMPLATES[i].id)) return i; return 0; }
+  function visIndexOf(t, oi) { const v = tpVisibleEntries(t); for (let i = 0; i < v.length; i++) if (v[i].oi === oi) return i; return 0; }
+  // 自作テンプレをTP_TEMPLATESへ反映（再読込: 既存editableを除去して入れ直す）
+  function tpLoadCustomIntoList() {
+    for (let i = TP_TEMPLATES.length - 1; i >= 0; i--) if (TP_TEMPLATES[i].editable) TP_TEMPLATES.splice(i, 1);
+    tpLoadCustom().forEach(function (t) {
+      TP_TEMPLATES.push({ id: t.id, title: t.title || "自作", source: "", category: "自作", editable: true,
+        total: (t.forms || []).length, forms: (t.forms || []).map(function (f) { return { grid: f.grid, percent: null, pieces: "", comment: f.comment || "" }; }) });
+    });
+  }
+  function persistCustom() {
+    const out = [];
+    TP_TEMPLATES.forEach(function (t) { if (t.editable) out.push({ id: t.id, title: t.title, forms: t.forms.map(function (f) { return { grid: f.grid, comment: f.comment || "" }; }) }); });
+    tpSaveCustom(out);
+  }
+  function persistEditable(t) { // 編集可テンプレを適切なストアへ保存（user=取込ストア / それ以外=自作ストア）
+    if (!t) return;
+    if (t.id === "user") tpSaveUserForms(t.forms.map(function (f) { return { grid: f.grid, comment: f.comment || "" }; }));
+    else persistCustom();
+  }
+
+  // ---- セルエディタ ----
+  const ED = { open: false, mode: "new", tmplIdx: -1, formOi: -1, brush: "X", grid: null };
+  function edEmptyGrid() { const g = []; for (let r = 0; r < EDIT_ROWS; r++) { const row = []; for (let c = 0; c < COLS; c++) row.push("_"); g.push(row); } return g; }
+  function edLoadGridFrom(formGrid) {
+    const g = edEmptyGrid();
+    if (Array.isArray(formGrid)) {
+      const H = formGrid.length;
+      for (let i = 0; i < H; i++) { const er = EDIT_ROWS - H + i; if (er < 0 || er >= EDIT_ROWS) continue; const s = formGrid[i] || ""; for (let c = 0; c < COLS; c++) { const ch = s[c] || "_"; g[er][c] = (ch === "X" || /[ILOZTJS]/.test(ch)) ? ch : "_"; } }
+    }
+    return g;
+  }
+  function edGridToForm() { // 14行→文字列配列、上下の全空行をトリム
+    let rows = ED.grid.map(function (r) { return r.join(""); });
+    while (rows.length && /^_+$/.test(rows[rows.length - 1])) rows.pop();
+    while (rows.length && /^_+$/.test(rows[0])) rows.shift();
+    return rows;
+  }
+  function edColorFor(ch) { return ch === "X" ? HC_GRAY : (/[ILOZTJS]/.test(ch) ? hcPieceColor(ch) : ""); }
+  function edBuildGridDom() {
+    const root = $("tpl-ed-grid"); if (!root) return;
+    root.innerHTML = ""; root.style.gridTemplateColumns = "repeat(" + COLS + ", 1fr)";
+    for (let r = 0; r < EDIT_ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const cell = document.createElement("button");
+      cell.className = "ed-cell"; cell.setAttribute("data-r", r); cell.setAttribute("data-c", c);
+      (function (rr, cc) { cell.addEventListener("click", function () { edPaint(rr, cc); }); })(r, c);
+      root.appendChild(cell);
+    }
+    edRefreshGridDom();
+  }
+  function edRefreshGridDom() {
+    const root = $("tpl-ed-grid"); if (!root) return;
+    const cells = root.querySelectorAll(".ed-cell");
+    for (let k = 0; k < cells.length; k++) { const el = cells[k]; const r = +el.getAttribute("data-r"), c = +el.getAttribute("data-c"); const ch = ED.grid[r][c]; const col = edColorFor(ch); el.style.background = col || ""; el.classList.toggle("empty", ch === "_"); el.textContent = (ch === "X" || ch === "_") ? "" : ch; }
+  }
+  function edPaint(r, c) { if (!ED.grid) return; ED.grid[r][c] = (ED.grid[r][c] === ED.brush) ? "_" : ED.brush; edRefreshGridDom(); }
+  function edSetBrush(b) { ED.brush = b; const root = $("tpl-ed-brush"); if (root) { const bs = root.querySelectorAll(".ed-brush"); for (let i = 0; i < bs.length; i++) bs[i].classList.toggle("sel", bs[i].getAttribute("data-brush") === b); } }
+  function edShow(on) { ED.open = on; const p = $("tpl-editor"); if (p) p.style.display = on ? "" : "none"; }
+  function edBuildBrushes() {
+    const root = $("tpl-ed-brush"); if (!root || root._built) return; root._built = true;
+    const labels = { "_": "空(消す)", "X": "土台" };
+    ED_BRUSHES.forEach(function (b) {
+      const btn = document.createElement("button"); btn.className = "ed-brush"; btn.setAttribute("data-brush", b);
+      btn.textContent = labels[b] || b;
+      if (b === "X") btn.style.background = HC_GRAY; else if (/[ILOZTJS]/.test(b)) btn.style.background = hcPieceColor(b);
+      btn.addEventListener("click", function () { edSetBrush(b); });
+      root.appendChild(btn);
+    });
+  }
+  function edOpenNew() {
+    edBuildBrushes();
+    ED.mode = "new"; ED.tmplIdx = -1; ED.formOi = -1; ED.grid = edEmptyGrid();
+    if ($("tpl-ed-title")) $("tpl-ed-title").textContent = "新規テンプレを作成";
+    if ($("tpl-ed-name")) $("tpl-ed-name").value = "自作";
+    if ($("tpl-ed-comment")) $("tpl-ed-comment").value = "";
+    edSetBrush("X"); edBuildGridDom(); edShow(true);
+  }
+  function edOpenEditCurrent() {
+    const t = tpCurTemplate(); if (!t) return;
+    const oi = tpCurOrig(); if (oi < 0) return;
+    edBuildBrushes();
+    const form = t.forms[oi];
+    ED.grid = edLoadGridFrom(form.grid);
+    if (tpIsEditable(t)) { ED.mode = "edit"; ED.tmplIdx = tpTmpl; ED.formOi = oi; if ($("tpl-ed-title")) $("tpl-ed-title").textContent = "この形を編集"; if ($("tpl-ed-name")) $("tpl-ed-name").value = t.title || ""; }
+    else { ED.mode = "dup"; ED.tmplIdx = -1; ED.formOi = -1; if ($("tpl-ed-title")) $("tpl-ed-title").textContent = "複製して編集（自作に保存）"; if ($("tpl-ed-name")) $("tpl-ed-name").value = (t.title || "自作") + " (コピー)"; }
+    if ($("tpl-ed-comment")) $("tpl-ed-comment").value = form.comment || "";
+    edSetBrush("X"); edBuildGridDom(); edShow(true);
+  }
+  function edCancel() { edShow(false); }
+  function edClear() { ED.grid = edEmptyGrid(); edRefreshGridDom(); }
+  function edSave() {
+    const grid = edGridToForm();
+    if (!grid.length) { flashHint("空のテンプレは保存できません。セルを置いてください。", true); return; }
+    const name = (($("tpl-ed-name") && $("tpl-ed-name").value) || "").trim() || "自作";
+    const comment = (($("tpl-ed-comment") && $("tpl-ed-comment").value) || "").trim();
+    if (ED.mode === "edit") {
+      const t = TP_TEMPLATES[ED.tmplIdx]; if (!t) { edShow(false); return; }
+      t.forms[ED.formOi] = { grid: grid, percent: null, pieces: "", comment: comment };
+      if (t.id !== "user") t.title = name; // 自作はリネーム可
+      persistEditable(t); edShow(false); buildTemplateList();
+      tpTmpl = ED.tmplIdx; hcPracIdx = visIndexOf(t, ED.formOi); startHoneycup();
+      flashHint("保存しました。", false);
+    } else { // new / dup → 新しい自作テンプレを作成
+      const id = "u_" + Date.now().toString(36) + "_" + Math.floor(Math.random() * 1e6).toString(36);
+      const t = { id: id, title: name, source: "", category: "自作", editable: true, total: 1, forms: [{ grid: grid, percent: null, pieces: "", comment: comment }] };
+      TP_TEMPLATES.push(t); persistCustom(); edShow(false); buildTemplateList();
+      tpTmpl = TP_TEMPLATES.indexOf(t); hcPracIdx = 0; startHoneycup();
+      flashHint("自作テンプレ「" + name + "」を作成しました。", false);
+    }
+  }
+
+  // ---- 削除/非表示 ----
+  function tplDeleteCurrentForm() {
+    const t = tpCurTemplate(); if (!t) return;
+    const oi = tpCurOrig(); if (oi < 0) return;
+    if (tpIsEditable(t)) {
+      if (!confirm("この形を削除しますか？")) return;
+      t.forms.splice(oi, 1); t.total = t.forms.length;
+      if (!t.forms.length) { const idx = TP_TEMPLATES.indexOf(t); if (idx >= 0) TP_TEMPLATES.splice(idx, 1); if (t.id === "user") tpSaveUserForms([]); else persistCustom(); tpTmpl = firstVisibleTpl(); hcPracIdx = 0; buildTemplateList(); startHoneycup(); flashHint("形を削除し、空になったテンプレを削除しました。", false); return; }
+      persistEditable(t); hcPracIdx = Math.min(hcPracIdx, tpForms().length - 1); buildFormJump(); buildTemplateList(); setupHoneycupBoard();
+      flashHint("形を削除しました。", false);
+    } else {
+      tpHidden.form[t.id + "#" + oi] = 1; tpSaveHidden();
+      const left = tpForms().length;
+      hcPracIdx = Math.min(hcPracIdx, Math.max(0, left - 1)); buildTemplateList();
+      if (left) { buildFormJump(); setupHoneycupBoard(); flashHint("この形を非表示にしました（「非表示の管理」で戻せます）。", false); }
+      else { tpTmpl = firstVisibleTpl(); hcPracIdx = 0; startHoneycup(); flashHint("全形が非表示になったため別のテンプレへ移動しました。", false); }
+    }
+  }
+  function tplHideOrDeleteTemplate() {
+    const t = tpCurTemplate(); if (!t) return;
+    if (tpIsEditable(t)) { if (!confirm("この自作テンプレを削除しますか？")) return; const idx = TP_TEMPLATES.indexOf(t); if (idx >= 0) TP_TEMPLATES.splice(idx, 1); if (t.id === "user") tpSaveUserForms([]); else persistCustom(); flashHint("自作テンプレを削除しました。", false); }
+    else { tpHidden.tpl[t.id] = 1; tpSaveHidden(); flashHint("テンプレ「" + t.title + "」を非表示にしました（「非表示の管理」で戻せます）。", false); }
+    tpTmpl = firstVisibleTpl(); hcPracIdx = 0; buildTemplateList(); startHoneycup();
+  }
+  function tplManageHidden() {
+    const box = $("tpl-hidden-list"); if (!box) return;
+    if (box.style.display !== "none" && box._shown) { box.style.display = "none"; box._shown = false; return; } // トグル
+    const tplIds = Object.keys(tpHidden.tpl || {}), formKeys = Object.keys(tpHidden.form || {});
+    let html = "";
+    if (!tplIds.length && !formKeys.length) html = '<p class="note">非表示の項目はありません。</p>';
+    tplIds.forEach(function (id) { const t = findTpById(id); html += '<div class="io-row"><span class="note" style="flex:1;margin:0">テンプレ: ' + tpEscape(t ? t.title : id) + '</span><button class="ctrl-btn small" data-rt="' + tpEscape(id) + '">復元</button></div>'; });
+    formKeys.forEach(function (k) { const id = k.split("#")[0]; const t = findTpById(id); const n = parseInt(k.split("#")[1], 10) + 1; html += '<div class="io-row"><span class="note" style="flex:1;margin:0">形: ' + tpEscape(t ? t.title : id) + ' #' + n + '</span><button class="ctrl-btn small" data-rf="' + tpEscape(k) + '">復元</button></div>'; });
+    box.innerHTML = html; box.style.display = ""; box._shown = true;
+    const rts = box.querySelectorAll("[data-rt]"); for (let i = 0; i < rts.length; i++) rts[i].addEventListener("click", function () { delete tpHidden.tpl[this.getAttribute("data-rt")]; tpSaveHidden(); buildTemplateList(); tplManageHidden(); tplManageHidden(); flashHint("テンプレを再表示しました。", false); });
+    const rfs = box.querySelectorAll("[data-rf]"); for (let i = 0; i < rfs.length; i++) rfs[i].addEventListener("click", function () { delete tpHidden.form[this.getAttribute("data-rf")]; tpSaveHidden(); buildFormJump(); buildTemplateList(); tplManageHidden(); tplManageHidden(); flashHint("形を再表示しました。", false); });
+  }
+  // ツールバーのラベルを現テンプレの編集可否で出し分け
+  function updateTplToolbar() {
+    const t = tpCurTemplate(); const ed = tpIsEditable(t);
+    const be = $("btn-tpl-edit"), bd = $("btn-tpl-del"), bh = $("btn-tpl-hide");
+    if (be) be.textContent = ed ? "✏ この形を編集" : "📑 複製して編集";
+    if (bd) bd.textContent = ed ? "🗑 この形を削除" : "🚫 この形を非表示";
+    if (bh) bh.textContent = ed ? "🗑 このテンプレを削除" : "🚫 このテンプレを非表示";
+  }
+
   function updateHoneycupStatus() {
     const t = tpCurTemplate(); const form = tpForms()[hcPracIdx];
     const fi = $("tp-formidx");
     if (fi) fi.textContent = t ? ((hcPracIdx + 1) + " / " + tpForms().length) : "— / —";
     const sel = $("tp-jump"); if (sel && sel.value !== String(hcPracIdx)) sel.value = String(hcPracIdx);
     highlightTemplateList();
+    updateTplToolbar();
     if (!t || !form) return;
     const el = $("hc-status");
     const pct = (form.percent != null) ? ("　成功率 " + form.percent + "%") : "";
@@ -2765,6 +2949,11 @@
     }
     // メニュー画面：矢印=移動 / Enter・Space=決定（設定の入力欄にフォーカス中は通常動作を優先）
     if (appView === "menu" && handleMenuKey(e)) return;
+    // ゲーム中：Esc または M でメニューへ戻る（入力欄フォーカス中は除外）
+    if (appView === "game" && (e.key === "Escape" || e.key === "m" || e.key === "M")) {
+      const ae = document.activeElement;
+      if (!(ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))) { e.preventDefault(); showMenu(); return; }
+    }
     const act = actionForKey(e.key);
     // 横/ソフトはDAS/ARRで処理。その他は1押下=1回にするためブラウザのキーリピートは無視。
     if (e.repeat) { if (act === "left" || act === "right" || act === "soft") e.preventDefault(); return; }
@@ -2901,7 +3090,17 @@
     if ($("btn-hc-rand")) $("btn-hc-rand").addEventListener("click", honeycupRandomForm);
     if ($("tp-jump")) $("tp-jump").addEventListener("change", function (e) { honeycupJumpForm(Number(e.target.value)); });
     tpLoadUserIntoTemplates(); // 保存済みの取込フォームを「ユーザー取込」テンプレに復元
+    tpLoadCustomIntoList();    // 自作テンプレ(localStorage)を一覧へ反映
     buildTemplateList(); // テンプレ一覧を描画
+    // テンプレ編集ツールバー
+    if ($("btn-tpl-new")) $("btn-tpl-new").addEventListener("click", edOpenNew);
+    if ($("btn-tpl-edit")) $("btn-tpl-edit").addEventListener("click", edOpenEditCurrent);
+    if ($("btn-tpl-del")) $("btn-tpl-del").addEventListener("click", tplDeleteCurrentForm);
+    if ($("btn-tpl-hide")) $("btn-tpl-hide").addEventListener("click", tplHideOrDeleteTemplate);
+    if ($("btn-tpl-manage")) $("btn-tpl-manage").addEventListener("click", tplManageHidden);
+    if ($("btn-tpl-save")) $("btn-tpl-save").addEventListener("click", edSave);
+    if ($("btn-tpl-cancel")) $("btn-tpl-cancel").addEventListener("click", edCancel);
+    if ($("btn-tpl-clear")) $("btn-tpl-clear").addEventListener("click", edClear);
     if ($("btn-reset")) $("btn-reset").addEventListener("click", doReset);
     if ($("btn-undo")) $("btn-undo").addEventListener("click", undo);
 
