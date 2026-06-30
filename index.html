@@ -10,14 +10,14 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=74" />
+  <link rel="stylesheet" href="css/style.css?v=75" />
 </head>
 <body>
   <!-- ============ メニュー画面（最初に表示・モード選択） ============ -->
   <div id="view-menu" class="view-menu">
     <header class="menu-head">
       <h1>テトリス練習ツール</h1>
-      <span id="app-version" class="ver">v74</span>
+      <span id="app-version" class="ver">v75</span>
     </header>
     <p class="menu-sub">練習したいモードを選んでスタート<br><small style="color:var(--muted)">Joy-Con / キーボードでも操作できます（十字・スティック＝移動 ／ A・Enter＝決定 ／ ＋長押し＝メニューへ戻る）</small></p>
 
@@ -186,7 +186,7 @@
         <span class="panel-title" id="tpl-ed-title" style="margin:0">盤面エディタ</span>
         <button id="btn-tpl-cancel" class="ctrl-btn small">✕ 閉じる</button>
       </div>
-      <p class="note"><b>ミノ（I/O/T/S/Z/J/L）を選ぶとそのミノの形で置けます</b>（「向き」ボタン/Rキーで回転）。<b>空・土台は1マスずつ</b>（クリック／なぞって連続、同じ所を再クリックで消去）。ショートカット: 1=空 2=土台 各ミノ文字 ／ Ctrl+Z=取消 ／ Enter=保存 ／ Esc=閉じる ／ 矢印＝カーソル Space＝置く。</p>
+      <p class="note"><b>ミノ（I/O/T/S/Z/J/L）を選び、マウス/指でその形を「なぞって」描く</b>と確定します（向きは自由・正しい形でないと描かれません）。<b>空・土台は1マスずつ</b>（なぞって連続、同じ所を再クリックで消去）。キーボード/パッドはカーソル＋Spaceで置き「向き」で回転。ショートカット: 1=空 2=土台 各ミノ文字 ／ Ctrl+Z=取消 ／ Enter=保存 ／ Esc=閉じる ／ 矢印＝カーソル。</p>
       <div class="ed-fields">
         <label class="ed-field"><span>名前</span><input type="text" id="tpl-ed-name" maxlength="24" /></label>
         <label class="ed-field"><span>メモ</span><input type="text" id="tpl-ed-comment" maxlength="40" placeholder="任意" /></label>
@@ -212,18 +212,18 @@
   </div>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=74"></script>
-  <script src="js/templates.js?v=74"></script>
-  <script src="js/catalog.js?v=74"></script>
-  <script src="js/catalog_data.js?v=74"></script>
-  <script src="js/fumen.js?v=74"></script>
-  <script src="js/honeycup.js?v=74"></script>
-  <script src="js/honeycup_patterns.js?v=74"></script>
-  <script src="js/templates_practice.js?v=74"></script>
-  <script src="js/templates_midgame.js?v=74"></script>
-  <script src="js/templates_lst.js?v=74"></script>
-  <script src="js/finesse.js?v=74"></script>
-  <script src="js/app.js?v=74"></script>
+  <script src="js/engine.js?v=75"></script>
+  <script src="js/templates.js?v=75"></script>
+  <script src="js/catalog.js?v=75"></script>
+  <script src="js/catalog_data.js?v=75"></script>
+  <script src="js/fumen.js?v=75"></script>
+  <script src="js/honeycup.js?v=75"></script>
+  <script src="js/honeycup_patterns.js?v=75"></script>
+  <script src="js/templates_practice.js?v=75"></script>
+  <script src="js/templates_midgame.js?v=75"></script>
+  <script src="js/templates_lst.js?v=75"></script>
+  <script src="js/finesse.js?v=75"></script>
+  <script src="js/app.js?v=75"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>

@@ -2287,7 +2287,7 @@
       root._wired = true;
       root.addEventListener("pointerdown", edGridPointerDown);
       root.addEventListener("pointermove", edGridPointerMove);
-      window.addEventListener("pointerup", function () { ED._painting = false; });
+      window.addEventListener("pointerup", edGridPointerUp);
     }
     edRefreshGridDom();
   }
@@ -2296,24 +2296,56 @@
     const cells = root.querySelectorAll(".ed-cell");
     for (let k = 0; k < cells.length; k++) { const el = cells[k]; const r = +el.getAttribute("data-r"), c = +el.getAttribute("data-c"); const ch = ED.grid[r][c]; const col = edColorFor(ch); el.style.background = col || ""; el.classList.toggle("empty", ch === "_"); el.classList.toggle("ed-cursor", r === ED.cr && c === ED.cc); el.textContent = (ch === "X" || ch === "_") ? "" : ch; }
   }
-  function edCellOfEvent(e) { const t = e.target; const cell = t && t.closest && t.closest(".ed-cell"); return cell; }
+  function edCellOfEvent(e) {
+    let cell = e.target && e.target.closest && e.target.closest(".ed-cell");
+    if (!cell && typeof document.elementFromPoint === "function") { const el = document.elementFromPoint(e.clientX, e.clientY); cell = el && el.closest && el.closest(".ed-cell"); }
+    return cell;
+  }
   function edGridPointerDown(e) {
     const cell = edCellOfEvent(e); if (!cell) return;
     const r = +cell.getAttribute("data-r"), c = +cell.getAttribute("data-c");
     ED.cr = r; ED.cc = c;
     if (e.preventDefault) e.preventDefault();
-    if (ED.tool === "mino") { edPush(); edStampAt(r, c); edRefreshGridDom(); return; }
+    if (ED.tool === "mino") { // ★ミノは「なぞって描く」→離した時に正しい形か判定
+      ED._drawing = true; ED._drawBefore = edClone(ED.grid); ED._drawSet = {};
+      edDrawAdd(r, c); edRefreshGridDom(); return;
+    }
     edPush();
     ED._painting = true;
     ED._strokeErase = (ED.brush === "_") || (ED.grid[r][c] === ED.brush);
     edApplyAt(r, c); edRefreshGridDom();
   }
   function edGridPointerMove(e) {
-    if (!ED._painting || ED.tool === "mino") return;
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const cell = el && el.closest && el.closest(".ed-cell"); if (!cell) return;
+    const cell = edCellOfEvent(e); if (!cell) return;
     const r = +cell.getAttribute("data-r"), c = +cell.getAttribute("data-c");
+    if (ED.tool === "mino") { if (!ED._drawing) return; ED.cr = r; ED.cc = c; edDrawAdd(r, c); edRefreshGridDom(); return; }
+    if (!ED._painting) return;
     ED.cr = r; ED.cc = c; edApplyAt(r, c); edRefreshGridDom();
+  }
+  function edGridPointerUp() {
+    if (ED.tool === "mino" && ED._drawing) {
+      ED._drawing = false;
+      const keys = Object.keys(ED._drawSet || {});
+      if (edValidateDraw(keys)) { // 正しいミノの形（向き自由）→確定（取消用に前状態を積む）
+        ED.undo.push(ED._drawBefore); if (ED.undo.length > 50) ED.undo.shift(); ED.redo.length = 0; edUpdateUndoBtns();
+      } else { // 形になっていない→描かない（元に戻す）
+        ED.grid = ED._drawBefore;
+        if (keys.length >= 2) flashHint("「" + ED.brush + "」ミノの形（4マス・向きは自由）になぞってください。", true);
+      }
+      ED._drawSet = {}; ED._drawBefore = null; edRefreshGridDom(); return;
+    }
+    ED._painting = false;
+  }
+  function edDrawAdd(r, c) { if (!ED.grid || r < 0 || r >= EDIT_ROWS || c < 0 || c >= COLS) return; const k = r + "," + c; if (ED._drawSet[k]) return; ED._drawSet[k] = 1; ED.grid[r][c] = ED.brush; }
+  // 描いた4マスが、選択中ミノの形（4回転いずれか）と一致するか
+  function edPieceSig(cells) { let mr = 99, mc = 99; for (let i = 0; i < cells.length; i++) { if (cells[i][0] < mr) mr = cells[i][0]; if (cells[i][1] < mc) mc = cells[i][1]; } return cells.map(function (p) { return [p[0] - mr, p[1] - mc]; }).sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; }).map(function (p) { return p[0] + ":" + p[1]; }).join(" "); }
+  function edValidateDraw(keys) {
+    if (keys.length !== 4) return false;
+    const cells = keys.map(function (k) { return k.split(",").map(Number); });
+    const sig = edPieceSig(cells);
+    const st = (E.PIECES[ED.brush] && E.PIECES[ED.brush].states) || [];
+    for (let i = 0; i < st.length; i++) if (edPieceSig(st[i]) === sig) return true;
+    return false;
   }
   function edApplyAt(r, c) { if (!ED.grid || r < 0 || r >= EDIT_ROWS || c < 0 || c >= COLS) return; ED.grid[r][c] = ED._strokeErase ? "_" : ED.brush; }
   // ---- ミノスタンプ ----
