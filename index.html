@@ -10,14 +10,14 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=72" />
+  <link rel="stylesheet" href="css/style.css?v=73" />
 </head>
 <body>
   <!-- ============ メニュー画面（最初に表示・モード選択） ============ -->
   <div id="view-menu" class="view-menu">
     <header class="menu-head">
       <h1>テトリス練習ツール</h1>
-      <span id="app-version" class="ver">v72</span>
+      <span id="app-version" class="ver">v73</span>
     </header>
     <p class="menu-sub">練習したいモードを選んでスタート<br><small style="color:var(--muted)">Joy-Con / キーボードでも操作できます（十字・スティック＝移動 ／ A・Enter＝決定 ／ ＋長押し＝メニューへ戻る）</small></p>
 
@@ -155,21 +155,6 @@
             </div>
             <button id="btn-tpl-manage" class="ctrl-btn small">♻ 非表示の管理（復元）</button>
             <div id="tpl-hidden-list" style="display:none;margin-top:6px"></div>
-
-            <!-- セルエディタ（開いたときだけ表示） -->
-            <div id="tpl-editor" style="display:none;margin-top:8px">
-              <div class="panel-title sub" id="tpl-ed-title">盤面エディタ</div>
-              <p class="note">ブラシを選んでマスをクリック（同じ色を再クリックで消去）。下に詰めて描きます。完成後「保存」。</p>
-              <label class="ed-field"><span>名前</span><input type="text" id="tpl-ed-name" maxlength="24" /></label>
-              <label class="ed-field"><span>メモ</span><input type="text" id="tpl-ed-comment" maxlength="40" placeholder="任意" /></label>
-              <div id="tpl-ed-brush" class="ed-brush-row"><!-- JSでブラシ生成 --></div>
-              <div id="tpl-ed-grid" class="ed-grid"><!-- JSでセル生成 --></div>
-              <div class="io-row">
-                <button id="btn-tpl-save" class="ctrl-btn small primary">💾 保存</button>
-                <button id="btn-tpl-clear" class="ctrl-btn small">🧹 全消去</button>
-                <button id="btn-tpl-cancel" class="ctrl-btn small">↩ キャンセル</button>
-              </div>
-            </div>
           </div>
 
           <div class="panel">
@@ -194,19 +179,55 @@
     </main>
   </div>
 
+  <!-- ============ テンプレ盤面エディタ（中央モーダル） ============ -->
+  <div id="tpl-modal" class="tpl-modal" style="display:none">
+    <div class="tpl-card">
+      <div class="tpl-card-head">
+        <span class="panel-title" id="tpl-ed-title" style="margin:0">盤面エディタ</span>
+        <button id="btn-tpl-cancel" class="ctrl-btn small">✕ 閉じる</button>
+      </div>
+      <p class="note">ブラシを選んでマスを<b>クリック／なぞって</b>描く（同じ色を再クリックで消去）。下に詰めて描きます。ショートカット: 1=空 2=土台 I/O/T/S/Z/J/L=ミノ ／ Ctrl+Z=取消 ／ Enter=保存 ／ Esc=閉じる ／ 矢印＝カーソル Space＝置く。</p>
+      <div class="ed-fields">
+        <label class="ed-field"><span>名前</span><input type="text" id="tpl-ed-name" maxlength="24" /></label>
+        <label class="ed-field"><span>メモ</span><input type="text" id="tpl-ed-comment" maxlength="40" placeholder="任意" /></label>
+      </div>
+      <div class="ed-toolbar">
+        <span class="ed-tool-group">
+          <button id="btn-ed-tool-cell" class="ctrl-btn small sel">セル</button>
+          <button id="btn-ed-tool-mino" class="ctrl-btn small">ミノ</button>
+        </span>
+        <span id="ed-mino-tools" class="ed-tool-group" style="display:none">
+          <button id="btn-ed-rot" class="ctrl-btn small">回転 0→1</button>
+        </span>
+      </div>
+      <div id="tpl-ed-brush" class="ed-brush-row"><!-- JSでブラシ生成 --></div>
+      <div class="ed-toolbar">
+        <button id="btn-ed-undo" class="ctrl-btn small">↶ 取消</button>
+        <button id="btn-ed-redo" class="ctrl-btn small">↷ やり直し</button>
+        <button id="btn-ed-mirror" class="ctrl-btn small">⇄ 左右ミラー</button>
+        <button id="btn-ed-fillfloor" class="ctrl-btn small">▁ 底を土台で埋める</button>
+        <button id="btn-tpl-clear" class="ctrl-btn small">🧹 全消去</button>
+      </div>
+      <div id="tpl-ed-grid" class="ed-grid"><!-- JSでセル生成 --></div>
+      <div class="io-row">
+        <button id="btn-tpl-save" class="ctrl-btn primary">💾 保存して練習</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=72"></script>
-  <script src="js/templates.js?v=72"></script>
-  <script src="js/catalog.js?v=72"></script>
-  <script src="js/catalog_data.js?v=72"></script>
-  <script src="js/fumen.js?v=72"></script>
-  <script src="js/honeycup.js?v=72"></script>
-  <script src="js/honeycup_patterns.js?v=72"></script>
-  <script src="js/templates_practice.js?v=72"></script>
-  <script src="js/templates_midgame.js?v=72"></script>
-  <script src="js/templates_lst.js?v=72"></script>
-  <script src="js/finesse.js?v=72"></script>
-  <script src="js/app.js?v=72"></script>
+  <script src="js/engine.js?v=73"></script>
+  <script src="js/templates.js?v=73"></script>
+  <script src="js/catalog.js?v=73"></script>
+  <script src="js/catalog_data.js?v=73"></script>
+  <script src="js/fumen.js?v=73"></script>
+  <script src="js/honeycup.js?v=73"></script>
+  <script src="js/honeycup_patterns.js?v=73"></script>
+  <script src="js/templates_practice.js?v=73"></script>
+  <script src="js/templates_midgame.js?v=73"></script>
+  <script src="js/templates_lst.js?v=73"></script>
+  <script src="js/finesse.js?v=73"></script>
+  <script src="js/app.js?v=73"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>

@@ -2249,8 +2249,11 @@
   }
 
   // ---- セルエディタ ----
-  const ED = { open: false, mode: "new", tmplIdx: -1, formOi: -1, brush: "X", grid: null };
+  const ED = { open: false, mode: "new", tmplIdx: -1, formOi: -1, brush: "X", grid: null,
+    tool: "cell", rot: 0, cr: EDIT_ROWS - 3, cc: 4, undo: [], redo: [], _painting: false, _strokeErase: false };
+  const edNav = { dir: "", start: 0, last: 0, fired: false }; // Joy-Conカーソルのリピート
   function edEmptyGrid() { const g = []; for (let r = 0; r < EDIT_ROWS; r++) { const row = []; for (let c = 0; c < COLS; c++) row.push("_"); g.push(row); } return g; }
+  function edClone(g) { return g.map(function (row) { return row.slice(); }); }
   function edLoadGridFrom(formGrid) {
     const g = edEmptyGrid();
     if (Array.isArray(formGrid)) {
@@ -2266,25 +2269,93 @@
     return rows;
   }
   function edColorFor(ch) { return ch === "X" ? HC_GRAY : (/[ILOZTJS]/.test(ch) ? hcPieceColor(ch) : ""); }
+  // ---- 取消/やり直し ----
+  function edPush() { if (!ED.grid) return; ED.undo.push(edClone(ED.grid)); if (ED.undo.length > 50) ED.undo.shift(); ED.redo.length = 0; edUpdateUndoBtns(); }
+  function edUndo() { if (!ED.undo.length) return; ED.redo.push(edClone(ED.grid)); ED.grid = ED.undo.pop(); edRefreshGridDom(); edUpdateUndoBtns(); }
+  function edRedo() { if (!ED.redo.length) return; ED.undo.push(edClone(ED.grid)); ED.grid = ED.redo.pop(); edRefreshGridDom(); edUpdateUndoBtns(); }
+  function edUpdateUndoBtns() { const u = $("btn-ed-undo"), r = $("btn-ed-redo"); if (u) u.disabled = !ED.undo.length; if (r) r.disabled = !ED.redo.length; }
+  // ---- 描画 ----
   function edBuildGridDom() {
     const root = $("tpl-ed-grid"); if (!root) return;
     root.innerHTML = ""; root.style.gridTemplateColumns = "repeat(" + COLS + ", 1fr)";
     for (let r = 0; r < EDIT_ROWS; r++) for (let c = 0; c < COLS; c++) {
-      const cell = document.createElement("button");
+      const cell = document.createElement("div");
       cell.className = "ed-cell"; cell.setAttribute("data-r", r); cell.setAttribute("data-c", c);
-      (function (rr, cc) { cell.addEventListener("click", function () { edPaint(rr, cc); }); })(r, c);
       root.appendChild(cell);
+    }
+    if (!root._wired) {
+      root._wired = true;
+      root.addEventListener("pointerdown", edGridPointerDown);
+      root.addEventListener("pointermove", edGridPointerMove);
+      window.addEventListener("pointerup", function () { ED._painting = false; });
     }
     edRefreshGridDom();
   }
   function edRefreshGridDom() {
     const root = $("tpl-ed-grid"); if (!root) return;
     const cells = root.querySelectorAll(".ed-cell");
-    for (let k = 0; k < cells.length; k++) { const el = cells[k]; const r = +el.getAttribute("data-r"), c = +el.getAttribute("data-c"); const ch = ED.grid[r][c]; const col = edColorFor(ch); el.style.background = col || ""; el.classList.toggle("empty", ch === "_"); el.textContent = (ch === "X" || ch === "_") ? "" : ch; }
+    for (let k = 0; k < cells.length; k++) { const el = cells[k]; const r = +el.getAttribute("data-r"), c = +el.getAttribute("data-c"); const ch = ED.grid[r][c]; const col = edColorFor(ch); el.style.background = col || ""; el.classList.toggle("empty", ch === "_"); el.classList.toggle("ed-cursor", r === ED.cr && c === ED.cc); el.textContent = (ch === "X" || ch === "_") ? "" : ch; }
   }
-  function edPaint(r, c) { if (!ED.grid) return; ED.grid[r][c] = (ED.grid[r][c] === ED.brush) ? "_" : ED.brush; edRefreshGridDom(); }
+  function edCellOfEvent(e) { const t = e.target; const cell = t && t.closest && t.closest(".ed-cell"); return cell; }
+  function edGridPointerDown(e) {
+    const cell = edCellOfEvent(e); if (!cell) return;
+    const r = +cell.getAttribute("data-r"), c = +cell.getAttribute("data-c");
+    ED.cr = r; ED.cc = c;
+    if (e.preventDefault) e.preventDefault();
+    if (ED.tool === "mino") { edPush(); edStampAt(r, c); edRefreshGridDom(); return; }
+    edPush();
+    ED._painting = true;
+    ED._strokeErase = (ED.brush === "_") || (ED.grid[r][c] === ED.brush);
+    edApplyAt(r, c); edRefreshGridDom();
+  }
+  function edGridPointerMove(e) {
+    if (!ED._painting || ED.tool === "mino") return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const cell = el && el.closest && el.closest(".ed-cell"); if (!cell) return;
+    const r = +cell.getAttribute("data-r"), c = +cell.getAttribute("data-c");
+    ED.cr = r; ED.cc = c; edApplyAt(r, c); edRefreshGridDom();
+  }
+  function edApplyAt(r, c) { if (!ED.grid || r < 0 || r >= EDIT_ROWS || c < 0 || c >= COLS) return; ED.grid[r][c] = ED._strokeErase ? "_" : ED.brush; }
+  // ---- ミノスタンプ ----
+  function edStampAt(r, c) {
+    const L = /[ILOZTJS]/.test(ED.brush) ? ED.brush : "T";
+    const off = (E.PIECES[L] && E.PIECES[L].states[ED.rot]) || null; if (!off) return;
+    let minr = 99, minc = 99; off.forEach(function (o) { if (o[0] < minr) minr = o[0]; if (o[1] < minc) minc = o[1]; });
+    const cells = off.map(function (o) { return [r + (o[0] - minr), c + (o[1] - minc)]; });
+    if (cells.some(function (p) { return p[0] < 0 || p[0] >= EDIT_ROWS || p[1] < 0 || p[1] >= COLS; })) { flashHint("はみ出すため置けません。位置/回転を変えてください。", true); return; }
+    cells.forEach(function (p) { ED.grid[p[0]][p[1]] = L; });
+  }
+  function edCellAt(r, c) { // カーソル/キーの主入力
+    if (ED.tool === "mino") { edPush(); edStampAt(r, c); edRefreshGridDom(); }
+    else { edPush(); ED.grid[r][c] = (ED.grid[r][c] === ED.brush) ? "_" : ED.brush; edRefreshGridDom(); }
+  }
+  // ---- 補助ツール ----
+  function edMirror() {
+    if (!ED.grid) return; edPush();
+    const MIR = { J: "L", L: "J", S: "Z", Z: "S", T: "T", I: "I", O: "O", X: "X", "_": "_" };
+    for (let r = 0; r < EDIT_ROWS; r++) { const row = ED.grid[r], nr = []; for (let c = COLS - 1; c >= 0; c--) nr.push(MIR[row[c]] || row[c]); ED.grid[r] = nr; }
+    edRefreshGridDom();
+  }
+  function edFillFloor() { if (!ED.grid) return; edPush(); for (let c = 0; c < COLS; c++) ED.grid[EDIT_ROWS - 1][c] = "X"; edRefreshGridDom(); }
+  function edClear() { if (!ED.grid) return; edPush(); ED.grid = edEmptyGrid(); edRefreshGridDom(); }
+  function edMoveCursor(dr, dc) { if (!ED.grid) return; ED.cr = Math.max(0, Math.min(EDIT_ROWS - 1, ED.cr + dr)); ED.cc = Math.max(0, Math.min(COLS - 1, ED.cc + dc)); edRefreshGridDom(); }
+  // ---- ブラシ / ツール（セル⇔ミノ）/ 回転 ----
   function edSetBrush(b) { ED.brush = b; const root = $("tpl-ed-brush"); if (root) { const bs = root.querySelectorAll(".ed-brush"); for (let i = 0; i < bs.length; i++) bs[i].classList.toggle("sel", bs[i].getAttribute("data-brush") === b); } }
-  function edShow(on) { ED.open = on; const p = $("tpl-editor"); if (p) p.style.display = on ? "" : "none"; }
+  function edCycleBrush(d) { const avail = (ED.tool === "mino") ? ["I", "O", "T", "S", "Z", "J", "L"] : ED_BRUSHES; let i = avail.indexOf(ED.brush); if (i < 0) i = 0; i = (i + d + avail.length) % avail.length; edSetBrush(avail[i]); }
+  function edSetTool(tool) {
+    ED.tool = tool;
+    const tc = $("btn-ed-tool-cell"), tm = $("btn-ed-tool-mino"); if (tc) tc.classList.toggle("sel", tool === "cell"); if (tm) tm.classList.toggle("sel", tool === "mino");
+    if (tool === "mino" && !/[ILOZTJS]/.test(ED.brush)) edSetBrush("T");
+    const root = $("tpl-ed-brush"); if (root) { const bs = root.querySelectorAll(".ed-brush"); for (let i = 0; i < bs.length; i++) { const b = bs[i].getAttribute("data-brush"); bs[i].style.display = (tool === "mino" && (b === "_" || b === "X")) ? "none" : ""; } }
+    const mt = $("ed-mino-tools"); if (mt) mt.style.display = (tool === "mino") ? "" : "none";
+    edUpdateRotLabel();
+  }
+  function edRotate() { ED.rot = (ED.rot + 1) % 4; edUpdateRotLabel(); }
+  function edUpdateRotLabel() { const el = $("btn-ed-rot"); if (el) el.textContent = "回転 " + ED.rot + "→" + ((ED.rot + 1) % 4); }
+  function edShow(on) {
+    ED.open = on; const m = $("tpl-modal"); if (m) m.style.display = on ? "" : "none";
+    if (!on) { ED._painting = false; if (typeof pad !== "undefined" && pad) { pad.prev = {}; pad._plusPrev = false; pad._plusConsumed = true; } }
+  }
   function edBuildBrushes() {
     const root = $("tpl-ed-brush"); if (!root || root._built) return; root._built = true;
     const labels = { "_": "空(消す)", "X": "土台" };
@@ -2296,27 +2367,67 @@
       root.appendChild(btn);
     });
   }
+  function edOpenReset() { ED.undo = []; ED.redo = []; ED.cr = EDIT_ROWS - 3; ED.cc = 4; ED.rot = 0; edUpdateUndoBtns(); }
   function edOpenNew() {
     edBuildBrushes();
-    ED.mode = "new"; ED.tmplIdx = -1; ED.formOi = -1; ED.grid = edEmptyGrid();
+    ED.mode = "new"; ED.tmplIdx = -1; ED.formOi = -1; ED.grid = edEmptyGrid(); edOpenReset();
     if ($("tpl-ed-title")) $("tpl-ed-title").textContent = "新規テンプレを作成";
     if ($("tpl-ed-name")) $("tpl-ed-name").value = "自作";
     if ($("tpl-ed-comment")) $("tpl-ed-comment").value = "";
-    edSetBrush("X"); edBuildGridDom(); edShow(true);
+    edSetBrush("X"); edSetTool("cell"); edBuildGridDom(); edShow(true);
   }
   function edOpenEditCurrent() {
     const t = tpCurTemplate(); if (!t) return;
     const oi = tpCurOrig(); if (oi < 0) return;
     edBuildBrushes();
     const form = t.forms[oi];
-    ED.grid = edLoadGridFrom(form.grid);
+    ED.grid = edLoadGridFrom(form.grid); edOpenReset();
     if (tpIsEditable(t)) { ED.mode = "edit"; ED.tmplIdx = tpTmpl; ED.formOi = oi; if ($("tpl-ed-title")) $("tpl-ed-title").textContent = "この形を編集"; if ($("tpl-ed-name")) $("tpl-ed-name").value = t.title || ""; }
     else { ED.mode = "dup"; ED.tmplIdx = -1; ED.formOi = -1; if ($("tpl-ed-title")) $("tpl-ed-title").textContent = "複製して編集（自作に保存）"; if ($("tpl-ed-name")) $("tpl-ed-name").value = (t.title || "自作") + " (コピー)"; }
     if ($("tpl-ed-comment")) $("tpl-ed-comment").value = form.comment || "";
-    edSetBrush("X"); edBuildGridDom(); edShow(true);
+    edSetBrush("X"); edSetTool("cell"); edBuildGridDom(); edShow(true);
   }
   function edCancel() { edShow(false); }
-  function edClear() { ED.grid = edEmptyGrid(); edRefreshGridDom(); }
+  // ---- エディタのキーボード操作（表示中のみ占有） ----
+  function handleEditorKey(e) {
+    const ae = document.activeElement; const inField = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+    if (e.key === "Escape") { e.preventDefault(); edCancel(); return true; }
+    if (e.key === "Enter" && !inField) { e.preventDefault(); edSave(); return true; }
+    if (inField) return true; // 入力欄編集中は通常タイプ（ブラシ/移動は無効）
+    if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) { e.preventDefault(); if (e.shiftKey) edRedo(); else edUndo(); return true; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y")) { e.preventDefault(); edRedo(); return true; }
+    if (e.key === "1") { edSetBrush("_"); return true; }
+    if (e.key === "2") { edSetBrush("X"); return true; }
+    const up = (e.key || "").toUpperCase();
+    if (up.length === 1 && /[ILOZTJS]/.test(up)) { edSetBrush(up); return true; }
+    if (e.key === "ArrowUp") { e.preventDefault(); edMoveCursor(-1, 0); return true; }
+    if (e.key === "ArrowDown") { e.preventDefault(); edMoveCursor(1, 0); return true; }
+    if (e.key === "ArrowLeft") { e.preventDefault(); edMoveCursor(0, -1); return true; }
+    if (e.key === "ArrowRight") { e.preventDefault(); edMoveCursor(0, 1); return true; }
+    if (e.key === " ") { e.preventDefault(); edCellAt(ED.cr, ED.cc); return true; }
+    if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); edPush(); ED.grid[ED.cr][ED.cc] = "_"; edRefreshGridDom(); return true; }
+    if ((e.key === "r" || e.key === "R") && ED.tool === "mino") { edRotate(); return true; }
+    return true; // エディタ表示中は他へ流さない（ゲーム/メニュー誤爆防止）
+  }
+  // ---- エディタのゲームパッド操作 ----
+  function pollEditor(gp, now) {
+    const up = padOn(gp, PAD_MAP.hard), down = padOn(gp, PAD_MAP.soft), left = padOn(gp, PAD_MAP.left), right = padOn(gp, PAD_MAP.right);
+    let dir = ""; if (up && !down) dir = "up"; else if (down && !up) dir = "down"; else if (left && !right) dir = "left"; else if (right && !left) dir = "right";
+    if (dir) {
+      const step = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] }[dir];
+      if (dir !== edNav.dir) { edNav.dir = dir; edNav.start = now; edNav.last = now; edNav.fired = false; edMoveCursor(step[0], step[1]); }
+      else if (!edNav.fired && now - edNav.start >= MENU_NAV_DAS) { edNav.fired = true; edMoveCursor(step[0], step[1]); edNav.last = now; }
+      else if (edNav.fired && now - edNav.last >= MENU_NAV_ARR) { edMoveCursor(step[0], step[1]); edNav.last = now; }
+    } else edNav.dir = "";
+    padEdge(gp, "ed_a", PAD_MAP.cw, function () { edCellAt(ED.cr, ED.cc); });
+    padEdge(gp, "ed_b", PAD_MAP.ccw, function () { edPush(); ED.grid[ED.cr][ED.cc] = "_"; edRefreshGridDom(); });
+    padEdge(gp, "ed_lb", { btn: [4] }, function () { edCycleBrush(-1); });
+    padEdge(gp, "ed_rb", { btn: [5] }, function () { edCycleBrush(1); });
+    padEdge(gp, "ed_rot1", { btn: [6] }, function () { if (ED.tool === "mino") edRotate(); });
+    padEdge(gp, "ed_rot2", { btn: [7] }, function () { if (ED.tool === "mino") edRotate(); });
+    padEdge(gp, "ed_undo", PAD_MAP.undo, function () { edUndo(); });
+    padEdge(gp, "ed_save", PAD_MAP.reset, function () { edSave(); });
+  }
   function edSave() {
     const grid = edGridToForm();
     if (!grid.length) { flashHint("空のテンプレは保存できません。セルを置いてください。", true); return; }
@@ -2824,6 +2935,8 @@
       return; // 取得中は通常操作を行わない
     }
 
+    // テンプレ編集中はエディタ操作（カーソル/塗り/スタンプ）
+    if (ED.open) { pollEditor(gp, now); return; }
     // メニュー画面ならゲーム操作でなくメニュー操作（移動/決定）を行う
     if (appView === "menu") { pollMenu(gp, now); return; }
 
@@ -2947,6 +3060,8 @@
       flashHint(e.key === "Escape" ? "キー設定を取り消しました。" : ("「" + labelOf(done) + "」のキーを設定しました。"), false);
       return;
     }
+    // テンプレ編集中はエディタが入力を占有（ブラシ/カーソル/取消/保存）
+    if (ED.open) { if (handleEditorKey(e)) return; }
     // メニュー画面：矢印=移動 / Enter・Space=決定（設定の入力欄にフォーカス中は通常動作を優先）
     if (appView === "menu" && handleMenuKey(e)) return;
     // ゲーム中：Esc または M でメニューへ戻る（入力欄フォーカス中は除外）
@@ -3101,6 +3216,14 @@
     if ($("btn-tpl-save")) $("btn-tpl-save").addEventListener("click", edSave);
     if ($("btn-tpl-cancel")) $("btn-tpl-cancel").addEventListener("click", edCancel);
     if ($("btn-tpl-clear")) $("btn-tpl-clear").addEventListener("click", edClear);
+    if ($("btn-ed-tool-cell")) $("btn-ed-tool-cell").addEventListener("click", function () { edSetTool("cell"); });
+    if ($("btn-ed-tool-mino")) $("btn-ed-tool-mino").addEventListener("click", function () { edSetTool("mino"); });
+    if ($("btn-ed-undo")) $("btn-ed-undo").addEventListener("click", edUndo);
+    if ($("btn-ed-redo")) $("btn-ed-redo").addEventListener("click", edRedo);
+    if ($("btn-ed-mirror")) $("btn-ed-mirror").addEventListener("click", edMirror);
+    if ($("btn-ed-fillfloor")) $("btn-ed-fillfloor").addEventListener("click", edFillFloor);
+    if ($("btn-ed-rot")) $("btn-ed-rot").addEventListener("click", edRotate);
+    if ($("tpl-modal")) $("tpl-modal").addEventListener("pointerdown", function (e) { if (e.target === $("tpl-modal")) edCancel(); }); // 暗幕クリックで閉じる
     if ($("btn-reset")) $("btn-reset").addEventListener("click", doReset);
     if ($("btn-undo")) $("btn-undo").addEventListener("click", undo);
 
