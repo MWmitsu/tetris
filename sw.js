@@ -5,7 +5,7 @@
 //  オフライン時のみキャッシュから配信する。これにより更新が確実に届き、かつオフラインでも起動できる。
 //  キャッシュ名(バージョン)を変えると旧キャッシュは activate 時に破棄される。
 // ============================================================
-const CACHE = 'tetris-practice-v77';
+const CACHE = 'tetris-practice-v78';
 
 const CORE = [
   './',
@@ -44,6 +44,9 @@ self.addEventListener('activate', (e) => {
       .then(() => self.clients.claim())
   );
 });
+
+// ページからの skipWaiting 要求で即時有効化（保険。install でも skipWaiting 済み）
+self.addEventListener('message', (e) => { if (e.data === 'skipWaiting') self.skipWaiting(); });
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;

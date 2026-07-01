@@ -10,14 +10,14 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=77" />
+  <link rel="stylesheet" href="css/style.css?v=78" />
 </head>
 <body>
   <!-- ============ メニュー画面（最初に表示・モード選択） ============ -->
   <div id="view-menu" class="view-menu">
     <header class="menu-head">
       <h1>テトリス練習ツール</h1>
-      <span id="app-version" class="ver">v77</span>
+      <span id="app-version" class="ver">v78</span>
     </header>
     <p class="menu-sub">練習したいモードを選んでスタート<br><small style="color:var(--muted)">Joy-Con / キーボードでも操作できます（十字・スティック＝移動 ／ A・Enter＝決定 ／ ＋長押し＝メニューへ戻る）</small></p>
 
@@ -221,35 +221,55 @@
   </div>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=77"></script>
-  <script src="js/templates.js?v=77"></script>
-  <script src="js/catalog.js?v=77"></script>
-  <script src="js/catalog_data.js?v=77"></script>
-  <script src="js/fumen.js?v=77"></script>
-  <script src="js/honeycup.js?v=77"></script>
-  <script src="js/honeycup_patterns.js?v=77"></script>
-  <script src="js/templates_practice.js?v=77"></script>
-  <script src="js/templates_midgame.js?v=77"></script>
-  <script src="js/templates_lst.js?v=77"></script>
-  <script src="js/finesse.js?v=77"></script>
-  <script src="js/app.js?v=77"></script>
+  <script src="js/engine.js?v=78"></script>
+  <script src="js/templates.js?v=78"></script>
+  <script src="js/catalog.js?v=78"></script>
+  <script src="js/catalog_data.js?v=78"></script>
+  <script src="js/fumen.js?v=78"></script>
+  <script src="js/honeycup.js?v=78"></script>
+  <script src="js/honeycup_patterns.js?v=78"></script>
+  <script src="js/templates_practice.js?v=78"></script>
+  <script src="js/templates_midgame.js?v=78"></script>
+  <script src="js/templates_lst.js?v=78"></script>
+  <script src="js/finesse.js?v=78"></script>
+  <script src="js/app.js?v=78"></script>
 
-  <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
+  <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない）
+       方針: バージョンを上げたら手動リロード不要で自動更新する。
+       復帰/フォーカス/オンライン復帰/定期(60s) で更新チェック→新SWが有効化されたら自動リロード。 -->
   <script>
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-      // 既にSWが制御中＝更新で新SWが有効化されたら自動リロードして最新を反映（古いキャッシュ残り対策）
       var __ttRefreshing = false;
+      // 既にSWが制御中のページで、新SWが有効化(controllerchange)されたら1回だけ自動リロードして最新へ
       if (navigator.serviceWorker.controller) {
         navigator.serviceWorker.addEventListener('controllerchange', function () {
           if (__ttRefreshing) return; __ttRefreshing = true; window.location.reload();
         });
       }
+      var __ttReg = null;
+      function __ttUpdate() { if (__ttReg) { try { __ttReg.update(); } catch (e) {} } }
+      // 新SWが見つかり待機状態になったら即 skipWaiting（保険。SW側でも install時に実施済み）
+      function __ttWatch(reg) {
+        if (!reg) return;
+        reg.addEventListener('updatefound', function () {
+          var w = reg.installing; if (!w) return;
+          w.addEventListener('statechange', function () {
+            if (w.state === 'installed' && navigator.serviceWorker.controller) {
+              try { if (reg.waiting) reg.waiting.postMessage('skipWaiting'); } catch (e) {}
+            }
+          });
+        });
+      }
       window.addEventListener('load', function () {
         navigator.serviceWorker.register('sw.js', { scope: './' }).then(function (reg) {
-          try { reg.update(); } catch (e) {}            // 訪問ごとに更新チェック
-          if (reg) setInterval(function () { try { reg.update(); } catch (e) {} }, 60000);
+          __ttReg = reg; __ttWatch(reg); __ttUpdate();
+          setInterval(__ttUpdate, 60000);
         }).catch(function () {});
       });
+      // アプリ復帰・フォーカス・オンライン復帰の度に更新チェック（インストール済みPWAでも取りこぼさない）
+      document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') __ttUpdate(); });
+      window.addEventListener('focus', __ttUpdate);
+      window.addEventListener('online', __ttUpdate);
     }
   </script>
 </body>
