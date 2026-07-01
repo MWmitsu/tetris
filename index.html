@@ -10,14 +10,14 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="stylesheet" href="css/style.css?v=76" />
+  <link rel="stylesheet" href="css/style.css?v=77" />
 </head>
 <body>
   <!-- ============ メニュー画面（最初に表示・モード選択） ============ -->
   <div id="view-menu" class="view-menu">
     <header class="menu-head">
       <h1>テトリス練習ツール</h1>
-      <span id="app-version" class="ver">v76</span>
+      <span id="app-version" class="ver">v77</span>
     </header>
     <p class="menu-sub">練習したいモードを選んでスタート<br><small style="color:var(--muted)">Joy-Con / キーボードでも操作できます（十字・スティック＝移動 ／ A・Enter＝決定 ／ ＋長押し＝メニューへ戻る）</small></p>
 
@@ -40,7 +40,15 @@
           <label class="toggle"><input type="checkbox" id="set-gravity"> 重力(自動落下)</label>
           <label class="toggle"><input type="checkbox" id="set-repeat"> テンプレ自動反復</label>
           <label class="toggle"><input type="checkbox" id="set-sound"> 効果音(SE)</label>
-          <p class="note">横移動の効き＝DAS 130ms／ARR 25ms（固定）。</p>
+          <div class="set-row"><span>操作スピード</span>
+            <select id="set-speed" class="tp-jump" aria-label="操作スピード">
+              <option value="130,25">ふつう（DAS130/ARR25）</option>
+              <option value="90,17">きびきび（90/17）</option>
+              <option value="60,10">最速（60/10）</option>
+              <option value="170,33">ゆったり（170/33）</option>
+            </select>
+          </div>
+          <p class="note">左右移動の効き（DAS=初動までの時間／ARR=連射間隔）。Joy-Conが重い時は「きびきび」「最速」を試してください。</p>
         </div>
         <div class="ms-col">
           <div class="panel-title">ゲームパッド (Switch Joy-Con)</div>
@@ -213,18 +221,18 @@
   </div>
 
   <!-- ビルド不要・classic script（file:// でも動く） -->
-  <script src="js/engine.js?v=76"></script>
-  <script src="js/templates.js?v=76"></script>
-  <script src="js/catalog.js?v=76"></script>
-  <script src="js/catalog_data.js?v=76"></script>
-  <script src="js/fumen.js?v=76"></script>
-  <script src="js/honeycup.js?v=76"></script>
-  <script src="js/honeycup_patterns.js?v=76"></script>
-  <script src="js/templates_practice.js?v=76"></script>
-  <script src="js/templates_midgame.js?v=76"></script>
-  <script src="js/templates_lst.js?v=76"></script>
-  <script src="js/finesse.js?v=76"></script>
-  <script src="js/app.js?v=76"></script>
+  <script src="js/engine.js?v=77"></script>
+  <script src="js/templates.js?v=77"></script>
+  <script src="js/catalog.js?v=77"></script>
+  <script src="js/catalog_data.js?v=77"></script>
+  <script src="js/fumen.js?v=77"></script>
+  <script src="js/honeycup.js?v=77"></script>
+  <script src="js/honeycup_patterns.js?v=77"></script>
+  <script src="js/templates_practice.js?v=77"></script>
+  <script src="js/templates_midgame.js?v=77"></script>
+  <script src="js/templates_lst.js?v=77"></script>
+  <script src="js/finesse.js?v=77"></script>
+  <script src="js/app.js?v=77"></script>
 
   <!-- PWA: Service Worker 登録（http(s) のときだけ。file:// 直開きでは何もしない） -->
   <script>

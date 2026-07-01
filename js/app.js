@@ -3307,6 +3307,7 @@
     bindToggle("set-repeat", "autoRepeat");
     bindToggle("set-sound", "sound");
     if ($("set-hc-guide")) bindToggle("set-hc-guide", "hcGuide");
+    bindSpeed();
     // AIヒントは LST積み / PC連パフェ 専用（トグル廃止＝常時有効。フリー等では出ない）
     // 効果音: 最初のユーザー操作で AudioContext を起動（自動再生ポリシー対策）
     sndInit();
@@ -3431,6 +3432,19 @@
     const el = $(id);
     el.checked = settings[key];
     el.addEventListener("change", function () { settings[key] = el.checked; render(); });
+  }
+  // 操作スピード(DAS/ARR)プリセット。localStorageに保存し、キーボード/ゲームパッド共通で適用。
+  const SPEED_KEY = "tt_speed_v1";
+  function applySpeed(v) {
+    if (!v) return; const p = String(v).split(","); const das = parseInt(p[0], 10), arr = parseInt(p[1], 10);
+    if (das >= 0) settings.das = das; if (arr >= 0) settings.arr = arr;
+  }
+  function bindSpeed() {
+    const el = $("set-speed"); if (!el) return;
+    let saved = null; try { saved = localStorage.getItem(SPEED_KEY); } catch (e) {}
+    if (saved) { applySpeed(saved); el.value = saved; }
+    else { el.value = settings.das + "," + settings.arr; }
+    el.addEventListener("change", function () { applySpeed(el.value); try { localStorage.setItem(SPEED_KEY, el.value); } catch (e) {} flashHint("操作スピードを変更しました（DAS " + settings.das + "ms／ARR " + settings.arr + "ms）。", false); });
   }
 
   function bindTouch() {
