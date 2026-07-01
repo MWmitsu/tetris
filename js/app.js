@@ -39,6 +39,7 @@
     arr: 25,           // ms（同上）
     sound: true,       // 効果音(SE)
     aiHint: true,      // AIヒント（LST積み/PC連パフェ専用。トグル廃止で常時有効）
+    hcGuide: true,     // テンプレ練習: 背景の目標ガイド表示（暗記確認でOFFにできる）
   };
 
   // ===== 効果音(SE)：Web Audioで合成（音源ファイル不要） =====
@@ -2577,6 +2578,30 @@
     }
     return { overflow: overflow, filledTarget: filledTarget };
   }
+  // ライン消去で盤面が下がったのに合わせ、目標ガイド(hcTarget)と土台(hcPrefillKey)も同じだけ下げる。
+  // 消えた行にあったセルは除去。それ以外は「自分より下で消えた行数」だけ row を増やす（＝下にずれる）。
+  function hcShiftAfterClear(rows) {
+    if (!rows || !rows.length) return;
+    const inCleared = function (r) { return rows.indexOf(r) >= 0; };
+    const shiftOf = function (r) { let s = 0; for (let i = 0; i < rows.length; i++) if (rows[i] > r) s++; return s; };
+    if (Array.isArray(G.hcTarget)) {
+      const nt = [];
+      for (let i = 0; i < G.hcTarget.length; i++) { const t = G.hcTarget[i]; if (inCleared(t[0])) continue; nt.push([t[0] + shiftOf(t[0]), t[1], t[2]]); }
+      G.hcTarget = nt;
+      G.hcTargetKey = {}; for (let i = 0; i < nt.length; i++) G.hcTargetKey[nt[i][0] + "," + nt[i][1]] = nt[i][2];
+    }
+    if (G.hcPrefillKey) {
+      const np = {};
+      Object.keys(G.hcPrefillKey).forEach(function (k) { const p = k.split(","); const r = +p[0], c = +p[1]; if (inCleared(r)) return; np[(r + shiftOf(r)) + "," + c] = 1; });
+      G.hcPrefillKey = np;
+    }
+  }
+  function toggleHcGuide() {
+    settings.hcGuide = !settings.hcGuide;
+    const cb = $("set-hc-guide"); if (cb) cb.checked = settings.hcGuide;
+    flashHint(settings.hcGuide ? "🎯 目標ガイド: 表示" : "🙈 目標ガイド: 非表示（暗記チェック）。もう一度Gで表示", false);
+    render();
+  }
   function handleHoneycupLock() {
     const a = G.active;
     pushHistory();
@@ -2592,6 +2617,7 @@
     const justDone = (!G.hcDone) && G.hcTarget && G.hcTarget.length > 0 && cnt.filledTarget >= G.hcTarget.length;
     // 通常のテトリス同様にライン消去
     const cl = E.clearLines(G.grid); G.grid = cl.grid;
+    if (cl.cleared > 0) hcShiftAfterClear(cl.rows); // ★消去で盤面が下がった分、目標ガイド/土台も一緒に下げる
     let clMsg = clearLabel(spin, cl.cleared);
     if (cl.cleared > 0) { G.lines += cl.cleared; if (boardEmpty()) { G.pcs++; clMsg = (clMsg ? clMsg + " " : "") + "パーフェクトクリア！🎉"; } }
     G.active = null;
@@ -2654,8 +2680,8 @@
       }
     }
 
-    // テンプレ練習: 色の目標形(まだ置いていないセル)を薄く＋細枠で表示。完成後(継続中)は非表示。
-    if ((G.mode === "honeycup" || G.mode === "lst") && G.hcTarget && !G.hcDone) {
+    // テンプレ練習: 色の目標形(まだ置いていないセル)を薄く＋細枠で表示。完成後(継続中)は非表示。設定でON/OFF（暗記確認用）。
+    if (G.mode === "honeycup" && G.hcTarget && !G.hcDone && settings.hcGuide) {
       bctx.save();
       for (let i = 0; i < G.hcTarget.length; i++) {
         const r = G.hcTarget[i][0], c = G.hcTarget[i][1], ch = G.hcTarget[i][2];
@@ -3100,6 +3126,11 @@
       const ae = document.activeElement;
       if (!(ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))) { e.preventDefault(); showMenu(); return; }
     }
+    // テンプレ練習：G キーで目標ガイドの表示/非表示を切替（暗記チェック用）
+    if (G.mode === "honeycup" && (e.key === "g" || e.key === "G")) {
+      const ae = document.activeElement;
+      if (!(ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))) { e.preventDefault(); toggleHcGuide(); return; }
+    }
     const act = actionForKey(e.key);
     // 横/ソフトはDAS/ARRで処理。その他は1押下=1回にするためブラウザのキーリピートは無視。
     if (e.repeat) { if (act === "left" || act === "right" || act === "soft") e.preventDefault(); return; }
@@ -3275,6 +3306,7 @@
     bindToggle("set-gravity", "gravity");
     bindToggle("set-repeat", "autoRepeat");
     bindToggle("set-sound", "sound");
+    if ($("set-hc-guide")) bindToggle("set-hc-guide", "hcGuide");
     // AIヒントは LST積み / PC連パフェ 専用（トグル廃止＝常時有効。フリー等では出ない）
     // 効果音: 最初のユーザー操作で AudioContext を起動（自動再生ポリシー対策）
     sndInit();
