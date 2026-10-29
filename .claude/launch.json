@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "tetris",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8230"],
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "serve.ps1"],
       "port": 8230
     }
   ]
