@@ -5,7 +5,7 @@
 //  オフライン時のみキャッシュから配信する。これにより更新が確実に届き、かつオフラインでも起動できる。
 //  キャッシュ名(バージョン)を変えると旧キャッシュは activate 時に破棄される。
 // ============================================================
-const CACHE = 'tetris-practice-v78';
+const CACHE = 'tetris-practice-v79';
 
 const CORE = [
   './',
@@ -57,7 +57,9 @@ self.addEventListener('fetch', (e) => {
   if (!sameOrigin) return;
 
   // network-first: 最新を優先。cache:'reload' でブラウザHTTPキャッシュを迂回し、更新を確実に取得。
-  // 成功したらSWキャッシュ更新。失敗(オフライン)時はキャッシュ→なければindex.html。
+  // 成功したらSWキャッシュ更新。失敗(オフライン)時はキャッシュ→なければ(画面遷移のときだけ)index.html。
+  // ignoreSearch: ページは js/xxx.js?v=NN で読むが CORE は ?v なしで保存するため、クエリを無視して照合する
+  // （無いと初回訪問直後のオフライン起動でスクリプトに index.html が返り、アプリが動かない）。
   e.respondWith(
     fetch(req, { cache: 'reload' })
       .then((res) => {
@@ -67,6 +69,7 @@ self.addEventListener('fetch', (e) => {
         }
         return res;
       })
-      .catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html')))
+      .catch(() => caches.match(req, { ignoreSearch: true }).then((hit) =>
+        hit || (req.mode === 'navigate' ? caches.match('./index.html') : Response.error())))
   );
 });
