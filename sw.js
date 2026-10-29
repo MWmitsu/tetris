@@ -5,7 +5,7 @@
 //  オフライン時のみキャッシュから配信する。これにより更新が確実に届き、かつオフラインでも起動できる。
 //  キャッシュ名(バージョン)を変えると旧キャッシュは activate 時に破棄される。
 // ============================================================
-const CACHE = 'tetris-practice-v79';
+const CACHE = 'tetris-practice-v80';
 
 const CORE = [
   './',
@@ -24,6 +24,7 @@ const CORE = [
   './js/templates_lst.js',
   './js/finesse.js',
   './js/app.js',
+  './icon-180.png',
   './icon-192.png',
   './icon-512.png',
 ];
@@ -31,7 +32,8 @@ const CORE = [
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE)
-      .then((c) => c.addAll(CORE))
+      // addAll は1件でも失敗すると全件保存されないため、1件ずつ保存して失敗した分だけ諦める
+      .then((c) => Promise.all(CORE.map((u) => c.add(u).catch(() => {}))))
       .catch(() => {}) // 一部取得失敗でもインストールは継続
       .then(() => self.skipWaiting())
   );
@@ -65,7 +67,9 @@ self.addEventListener('fetch', (e) => {
       .then((res) => {
         if (res && res.ok) {
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy));
+          // 保存完了まで SW を終了させない（waitUntil）。万一 waitUntil が使えない時も応答は返す
+          const saving = caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          try { e.waitUntil(saving); } catch (_) {}
         }
         return res;
       })
